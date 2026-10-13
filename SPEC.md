@@ -132,6 +132,62 @@ Normative default info string is UTF-8 `"eDiplomas PRF"`.
 
 The decrypted plaintext MUST be UTF-8 JSON WalletStateContainer (Section 6).
 
+## 5.4 Derived secrets
+
+A client MAY derive secrets from `mainKey` for purposes outside the container
+itself. All clients (TypeScript and native) MUST derive them identically, so
+that the same secret is obtained on every passkey and every device of an
+account.
+
+Derivation:
+
+- HKDF hash: SHA-256 (RFC 5869)
+- IKM: the 32-byte `mainKey`, as unwrapped in Section 5.2 (never a PRF output:
+  PRF outputs differ per passkey, `mainKey` does not)
+- salt: empty (as RFC 5869: a string of 32 zero bytes)
+- info: `label || context`, where `label` is the UTF-8 string
+  `"<namespace>/v<n>"` and `context` is purpose-specific, with no separator
+  between them
+- output length: at most 32 bytes (a single HKDF block)
+
+`<namespace>` identifies the purpose, in the same reverse-DNS style as the
+`S.extensions` namespaces; the version `v<n>` is part of the label, so a
+changed derivation is a new label and never silently replaces an old one.
+
+Rules:
+
+- A derived secret MUST NOT be stored, synchronised, exported or logged, and
+  MUST NOT be returned outside the component that needs it. It is recomputed
+  on use from an unlocked container. An API that offers derivation MUST NOT
+  expose `mainKey`.
+- `mainKey` is permanent. A client MUST NOT rotate or re-key `mainKey` (for
+  example when a passkey is added or removed, or when the payload is
+  re-encrypted); a new PRF entry wraps the existing `mainKey`. Should a new
+  `mainKey` ever be created for an account that already has derived secrets
+  in use, every secret derived from it changes, and any value that was
+  computed from one (a commitment, say) no longer matches: such a re-key
+  therefore breaks continuity of everything derived and MUST be treated as
+  creating a new root.
+
+### 5.4.1 Private seed
+
+The holder's private seed for a credential type is:
+
+    private_seed = HKDF-SHA256(mainKey, salt = empty, info = "org.siros.private_seed/v1" || credentialType)[:16]
+
+`credentialType` is an opaque string supplied by the caller (for example a
+document type or a `vct`), UTF-8 encoded and not interpreted. The seed is
+therefore stable per credential type: it does not depend on a credential id,
+a batch or an issuance. The commitment to it is `SHA-256(private_seed)`.
+
+The label `org.siros.private_seed/v1` is a proposal and needs the
+specification owner's decision.
+
+Test vectors: `test-vectors/derived-secrets.json` (fixed roots; self-generated
+with independent code, not yet cross-checked between clients). A client
+conforming to this section MUST reproduce `seed_hex` and `psc_hex` for every
+vector from `root_hex` and `credential_type`.
+
 ## 6. JWE Plaintext: WalletStateContainer
 
 The plaintext JSON MUST follow the event-sourced wallet schema used by `wallet-frontend`:
