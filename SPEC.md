@@ -1,7 +1,7 @@
 # SIROS Wallet Private Data Blob Specification (Normative)
 
-Version: 2.0  
-Date: 2026-06-22  
+Version: 2.2  
+Date: 2026-10-16  
 Status: Normative (reference implementation aligned)
 
 ## 1. Scope and Source of Truth
@@ -132,6 +132,32 @@ Normative default info string is UTF-8 `"eDiplomas PRF"`.
 
 The decrypted plaintext MUST be UTF-8 JSON WalletStateContainer (Section 6).
 
+## 5A. Delivered secrets
+
+A delivered secret is a secret value chosen and supplied by a counterparty such
+as an issuer, for example by an issuer in an OpenID4VCI credential response (the
+`nym_auth` credential's `secret_seed`, delivered as an entry of
+`credential_metadata`). A secret that the wallet generates or derives itself, for
+example `private_seed`, is out of scope of this section and is covered elsewhere.
+
+Rules:
+
+- A delivered secret MAY be stored, in the `metadata` member of the credential
+  entry it belongs to (Section 6).
+- It is protected exactly like all other container contents: it exists in
+  plaintext only inside the encrypted container (Section 5.3) and the unlocked
+  wallet.
+- It MUST NOT be logged, displayed, or exported in clear, and MUST NOT be sent
+  to the backend other than inside the encrypted container.
+- It MUST be deleted together with the credential entry it belongs to.
+- If the credential makes a commitment to the secret, the wallet MUST verify the
+  commitment against the issuer-signed credential before storing the secret and
+  again before each use, and MUST treat a mismatch as a failed issuance (the
+  secret MUST NOT be stored or used). For `nym_auth` the commitment is
+  `SHA256(secret_seed) == ssc`, where `ssc` is the claim of the issuer-signed
+  credential and `secret_seed` is the 16-byte value carried as lowercase
+  hexadecimal.
+
 ## 6. JWE Plaintext: WalletStateContainer
 
 The plaintext JSON MUST follow the event-sourced wallet schema used by `wallet-frontend`:
@@ -159,6 +185,44 @@ Normative requirements:
 - `S.credentials[]` entries MUST preserve wallet metadata fields (`format`, `kid`, `instanceId`, `batchId`, `credentialIssuerIdentifier`, `credentialConfigurationId`).
 - `S.settings.openidRefreshTokenMaxAgeInSeconds` MUST be preserved.
 - `presentations` and `credentialIssuanceSessions` MUST be preserved.
+- A reader that rewrites the container MUST preserve, with an identical value,
+  every member of an `S.credentials[]` entry that it does not understand, and
+  every member of `S` that it does not understand, and likewise every member of
+  a `metadata` entry (below). Preservation applies to the JSON value, not only
+  to the wallet metadata fields named above. An implementation that cannot
+  preserve such a member MUST refuse to rewrite the container rather than drop
+  the member.
+
+`S.credentials[]` entries MAY carry the member `metadata`:
+
+```json
+{
+  "id": "cred-001",
+  "format": "dc+sd-jwt",
+  "metadata": [
+    { "type": "org.siros.NS.secret_seed", "value": "00112233445566778899aabbccddeeff" }
+  ]
+}
+```
+
+- `metadata` is OPTIONAL. If present it MUST be an array of objects, each with a
+  `type` member that is a non-empty string and a `value` member that is any
+  JSON value.
+- Entries MUST be stored exactly as received from the party that supplied them
+  (for credentials obtained by OpenID4VCI, the issuer's `credential_metadata`
+  from the credential response). The container does not interpret an entry. The
+  order of entries MUST be preserved, and several entries MAY have the same
+  `type`; the consumer of a `type` defines its meaning.
+- A writer MUST NOT emit `metadata` when there is nothing to store: it MUST NOT
+  emit `null` or an empty array. A reader MUST accept an absent member and an
+  empty array, and treat both as no metadata.
+- `metadata` holds data tied to one credential entry, for example secrets
+  delivered by the issuer (Section 5A) or tokens that give the holder control
+  over revocation of that credential. It MUST NOT hold display metadata, which
+  is re-fetched from the issuer, and MUST NOT hold secrets that the wallet
+  generates or derives itself. The member name is unrelated to display metadata
+  that implementations keep elsewhere.
+- Adding `metadata` is additive; `S.schemaVersion` remains `3`.
 
 ## 7. Legacy Compatibility Rules
 
@@ -182,3 +246,7 @@ Backend optimistic concurrency is part of privateData lifecycle:
 - `wallet-frontend/src/services/WalletStateSchemaVersion1.ts`
 - `wallet-frontend/src/services/WalletStateSchemaVersion3.ts`
 - `wallet-frontend/src/util.ts`
+
+## 10. Changes
+
+- 2.2 (2026-10-16): Section 5A (delivered secrets) added; Section 6 gains the optional `S.credentials[].metadata` member and the rule that unknown credential-entry and `S` members MUST be preserved. Additive; `S.schemaVersion` remains `3`. The version number is provisional until reconciled with 2.1 (`S.extensions`).
