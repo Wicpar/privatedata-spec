@@ -30,6 +30,16 @@ drops it does not degrade the credential, it makes it permanently
 unpresentable — and the failure lands on whichever client touches the
 container last, not on the one that caused it.
 
+## Relation to credential metadata (PR #3)
+
+`org.siros.oid4vci.refresh` stays an extension: a refresh token is shared by a
+batch of credentials, so it is keyed by `batchId` and is not data of one
+credential entry. Data that an issuer supplies for exactly one credential
+entry, and that the wallet stores uninterpreted, goes in that entry's
+`metadata` member instead (SPEC.md v2.2, PR #3), not in a namespace; such data
+needs neither a registry entry nor `set_extension` events, and is deleted with
+the entry. Neither change gates the other.
+
 ## Related
 
 - `SPEC.md` §6.1 — the normative mechanism

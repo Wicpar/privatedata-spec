@@ -37,6 +37,20 @@ as the one remaining Phase 0 item.
 
 This replaces the pattern rather than extending it a third time.
 
+**Alignment with credential metadata (PR #3, `feat/credential-metadata`).**
+All three kinds of state above are *defined by the client*, which is why they
+live in `S.extensions`. A different kind of data exists: data that a
+counterparty supplies for exactly one credential entry (for example a secret
+an issuer delivers in its credential response). PR #3 gives that its own home,
+an optional `metadata` member of the credential entry, and a general rule that
+a rewriting reader preserves unknown members of `S` and of credential entries.
+The two are complementary, not alternatives: counterparty-supplied data tied to
+one entry belongs in the entry; client-defined state, and state spanning
+several entities (such as a refresh token per `batchId`), belongs in a
+namespace. The sections below record the situation *before* that change; where
+a statement there is narrower than the combined specification, an alignment
+note says so.
+
 ---
 
 ## 2. What was verified
@@ -63,6 +77,13 @@ foldState(container)          // with a known alter_settings event
 
 The `initialWalletStateContainer()` call that would discard them runs only
 when migrating a V1 keystore, which predates the container entirely.
+
+> **Alignment note.** This section examines `S.wscdCredentials`, a field that
+> only a client defines. It does not show that *every* unknown per-entry
+> datum needs an extension: a member inside a credential entry is carried by
+> the event that creates the entry, so it is part of what a merge replays,
+> not of the fold cache `S`. That reading follows from §2.3 and has not been
+> separately run against `wallet-frontend`.
 
 ### 2.2 Unknown event types crash the merge
 
@@ -102,6 +123,12 @@ problem.
 
 Neither extension route works end to end. The one that does — a known event
 type with a merge strategy — is what `S.extensions` generalises.
+
+"The only durable carrier" in the table means the only one for state that is
+not part of a credential entry. Unknown members of an entry written in the
+entry's creation event are carried with that event (see the alignment note
+in §2.1), which is what makes the `metadata` member of PR #3 viable without an
+event type of its own.
 
 ### 2.5 A note on §6.1 and §6.2
 

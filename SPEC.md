@@ -178,8 +178,25 @@ Namespaces are reverse-DNS strings, registered in §6.1.6. Registration is a
 change to this document.
 
 - Readers MUST NOT interpret a value in a namespace they do not own.
-- Readers MUST preserve namespaces and extension events they do not
+- In addition to any other preservation requirement of this specification, a
+  reader that rewrites the container MUST preserve, with identical values,
+  every namespace of `S.extensions` and every extension event that it does not
   recognise. An unrecognised namespace is not an error.
+
+A reader that does not implement this section sees `S.extensions` as an
+unknown member of `S` and handles it as it would any other unknown member.
+
+*Non-normative guidance — extension namespace or entry member.* State that a
+client defines for its own use (key handles, renewal material, the holder
+state of a credential scheme) belongs in a namespace of `S.extensions`. Data
+that a counterparty such as an issuer supplies for exactly one credential
+entry, and that the wallet stores as received without interpreting it, is
+carried in that entry, not in an extension: it then travels with the entry,
+and deleting the entry deletes it. Where this specification defines a member
+of the credential entry for such data, that member is used. State that spans
+several entities, such as one refresh token shared by a batch of credentials,
+is not tied to a single entry and belongs in an extension keyed by the entity
+(`batchId`). Do not store the same datum in both places.
 
 *Non-normative illustration:*
 
@@ -217,6 +234,11 @@ const notOk: Extensions = {
 - A namespace MUST NOT grow its state with the number of events. An entry
   value MUST NOT accumulate an append-only history.
 - Deleting the entity an entry key names MUST delete the entry.
+
+*Non-normative:* data carried inside a credential entry disappears with the
+entry. An extension entry that concerns a credential lives outside the entry
+and is removed only by the tombstone of §6.1.3, which the client deleting the
+credential has to write.
 
 Implementations SHOULD report per-namespace sizes.
 
@@ -270,6 +292,13 @@ const setExtensionStrategy: MergeStrategy = (_mbesv, a, b) =>
     e => `${e.namespace}\u0000${e.key}`,
   );
 ```
+
+*Non-normative deployment note:* a client that predates `set_extension` may
+fail, rather than ignore, an event type it does not know when it merges
+divergent histories (`docs/EXTENSIONS-DESIGN.md` §2.2). Writers therefore
+introduce `set_extension` events only once the clients sharing the account
+tolerate unknown event types; until then the `S.extensions` shape can be
+written without events (`docs/EXTENSIONS-DESIGN.md` §6.1).
 
 Folding is order-independent: for a given key the result is the value of the
 greatest `(timestampSeconds, eventId)` among its events, whether a client
@@ -341,6 +370,9 @@ of this document.
 - Readers MAY accept both for migration.
 - Writers MUST NOT emit them. The namespaces in §6.1.6 replace them.
 
+A reader that does not migrate these fields handles them as unknown members
+of `S`.
+
 ## 7. Legacy Compatibility Rules
 
 `wallet-frontend` accepts legacy containers where PRF/password entries directly contain wrapped main keys (`mainKey` symmetric wrapping style) and may upgrade them to asymmetric encapsulation style.
@@ -364,12 +396,11 @@ Backend optimistic concurrency is part of privateData lifecycle:
 - `wallet-frontend/src/services/WalletStateSchemaVersion3.ts`
 - `wallet-frontend/src/util.ts`
 
----
+### 9.1 Design documents (non-normative)
 
----
-
-Design rationale, the evidence behind these rules, and a comparison with the
-typed-collection approach of `wwWallet/wallet-frontend#751` are in
+Design rationale, the evidence behind the rules of Section 6.1, and a
+comparison with the typed-collection approach of
+`wwWallet/wallet-frontend#751` are in
 [`docs/EXTENSIONS-DESIGN.md`](docs/EXTENSIONS-DESIGN.md).
 
 An alternative in which the state layer is a CRDT document rather than an
@@ -379,3 +410,7 @@ comparison in
 Sequencing for both is in [`docs/ROLLOUT-PLAN.md`](docs/ROLLOUT-PLAN.md).
 
 All three documents are non-normative.
+
+## 10. Changes
+
+- 2.1 (2026-08-28): Section 6.1 (`S.extensions`: namespaced extension state, `set_extension` events, namespace registry) and Section 6.2 (deprecation of the legacy top-level fields `wscdCredentials` and `credentialRefreshTokens`) added. Additive; `S.schemaVersion` remains `3`.
