@@ -336,6 +336,41 @@ validate_metadata() {
         return 1
     fi
     
+    validate_credential_metadata "$client" "$test_id" "$decrypted_state" || return 1
+
+    return 0
+}
+
+# Validate credential `metadata` and unknown-member preservation (SPEC.md Section 6).
+# Reads the enclosing run_tests variable `vector_line` (bash dynamic scope) so the
+# decrypted state can be compared with the vector's expected round-trip state.
+validate_credential_metadata() {
+    local client=$1
+    local test_id=$2
+    local decrypted_state=$3
+
+    # Shape: metadata is absent or a non-empty array of {type: non-empty string, value}.
+    # A writer MUST NOT emit null or [] (a reader accepts them).
+    if ! echo "$decrypted_state" | jq -e '
+        all(.S.credentials[]?;
+            (has("metadata") | not) or
+            (.metadata | type == "array" and length > 0 and
+             all(.[]; type == "object" and has("value") and (.type | type == "string" and length > 0))))' > /dev/null 2>&1; then
+        log_fail "  ✗ credential metadata malformed, null or empty (MUST be absent instead)"
+        return 1
+    fi
+
+    # Preservation: unknown members, metadata entries and order, unknown S members.
+    local expected
+    expected=$(echo "${vector_line:-}" | jq -c '.expected.roundTripState // empty' 2>/dev/null || true)
+    if [[ -n "$expected" ]]; then
+        if echo "$decrypted_state" | jq -e --argjson e "$expected" '.S == $e.S' > /dev/null 2>&1; then
+            log_verbose "  ✓ S equals expected round-trip state (unknown members and metadata preserved)"
+        else
+            log_fail "  ✗ S differs from expected.roundTripState for $test_id"
+            return 1
+        fi
+    fi
     return 0
 }
 
