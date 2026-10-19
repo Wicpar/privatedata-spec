@@ -20,6 +20,20 @@ TEST_VECTORS_DIR="$REPO_ROOT/test-vectors"
 # Configuration
 CLIENT="${CLIENT:-all}"
 VECTOR="${VECTOR:-}"
+
+# Distinguishes "this client's conformance harness is not installed" from
+# "this client produced a wrong answer". Both used to return 1, so an absent
+# harness counted as a failure and, with STOP_ON_FAIL defaulting to 1,
+# aborted the entire run on the first vector.
+readonly RC_UNAVAILABLE=2
+
+# Client checkout locations. These MUST have defaults: the script runs under
+# `set -u`, and the client branches below dereference them even when that
+# client is unavailable - an unset variable there aborts the whole run after
+# the first vector, with the error swallowed by the caller's 2>/dev/null.
+WALLET_FRONTEND_PATH="${WALLET_FRONTEND_PATH:-}"
+SIROS_SDK_KOTLIN_PATH="${SIROS_SDK_KOTLIN_PATH:-}"
+SIROS_SDK_SWIFT_PATH="${SIROS_SDK_SWIFT_PATH:-}"
 VERBOSE="${VERBOSE:-0}"
 STOP_ON_FAIL="${STOP_ON_FAIL:-1}"
 
@@ -176,7 +190,7 @@ check_client() {
                 return 0
             else
                 log_skip "Node.js/npm not available"
-                return 1
+                return $RC_UNAVAILABLE
             fi
             ;;
         kotlin)
@@ -185,7 +199,7 @@ check_client() {
                 return 0
             else
                 log_skip "Gradle not available"
-                return 1
+                return $RC_UNAVAILABLE
             fi
             ;;
         swift)
@@ -194,7 +208,7 @@ check_client() {
                 return 0
             else
                 log_skip "Swift not available"
-                return 1
+                return $RC_UNAVAILABLE
             fi
             ;;
     esac
@@ -220,7 +234,7 @@ encrypt_test() {
                     --prf-inputs "$prf_inputs_file"
             else
                 log_skip "conformance:encrypt not available for TS client"
-                return 1
+                return $RC_UNAVAILABLE
             fi
             ;;
         kotlin)
@@ -233,7 +247,7 @@ encrypt_test() {
                     --output="-"
             else
                 log_skip "conformanceEncrypt not available for Kotlin client"
-                return 1
+                return $RC_UNAVAILABLE
             fi
             ;;
         swift)
@@ -244,7 +258,7 @@ encrypt_test() {
                     "$plaintext_file" "$prf_inputs_file"
             else
                 log_skip "ConformanceEncrypt not available for Swift client"
-                return 1
+                return $RC_UNAVAILABLE
             fi
             ;;
     esac
@@ -267,7 +281,7 @@ decrypt_test() {
                     --container "$container_file"
             else
                 log_skip "conformance:decrypt not available for TS client"
-                return 1
+                return $RC_UNAVAILABLE
             fi
             ;;
         kotlin)
@@ -276,7 +290,7 @@ decrypt_test() {
                 gradle conformanceDecrypt --input="$container_file" --output="-"
             else
                 log_skip "conformanceDecrypt not available for Kotlin client"
-                return 1
+                return $RC_UNAVAILABLE
             fi
             ;;
         swift)
@@ -285,7 +299,7 @@ decrypt_test() {
                 "$SIROS_SDK_SWIFT_PATH/.build/debug/ConformanceDecrypt" "$container_file"
             else
                 log_skip "ConformanceDecrypt not available for Swift client"
-                return 1
+                return $RC_UNAVAILABLE
             fi
             ;;
     esac
@@ -353,7 +367,7 @@ run_tests() {
     log_info ""
     
     # For each test vector
-    load_test_vectors | while IFS= read -r vector_line; do
+    while IFS= read -r vector_line <&3; do
         local test_id=$(echo "$vector_line" | jq -r '.id')
         local description=$(echo "$vector_line" | jq -r '.description')
         
@@ -364,11 +378,11 @@ run_tests() {
         
         # For each client
         for client in "${CLIENTS[@]}"; do
-            ((TOTAL_TESTS++))
+            TOTAL_TESTS=$((TOTAL_TESTS + 1))
             
             # Check if client is available
             if ! check_client "$client"; then
-                ((SKIPPED_TESTS++))
+                SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
                 continue
             fi
             
@@ -387,12 +401,18 @@ run_tests() {
             echo "$prf_inputs" > "$prf_inputs_file"
             
             # Test encryption
-            if encrypt_test "$client" "$test_id" "$plaintext_file" "$prf_inputs_file" > "$encrypted_file" 2>/dev/null; then
+            encrypt_test "$client" "$test_id" "$plaintext_file" "$prf_inputs_file" > "$encrypted_file" 2>/dev/null && rc=0 || rc=$?
+            if [[ $rc -eq $RC_UNAVAILABLE ]]; then
+                log_skip "  [$client] Harness not installed - skipping"
+                SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
+                rm -rf "$tmp_dir"
+                continue
+            elif [[ $rc -eq 0 ]]; then
                 log_pass "  [$client] Encryption successful"
-                ((PASSED_TESTS++))
+                PASSED_TESTS=$((PASSED_TESTS + 1))
             else
                 log_fail "  [$client] Encryption failed"
-                ((FAILED_TESTS++))
+                FAILED_TESTS=$((FAILED_TESTS + 1))
                 rm -rf "$tmp_dir"
                 if [[ $STOP_ON_FAIL -eq 1 ]]; then
                     exit 1
@@ -401,12 +421,18 @@ run_tests() {
             fi
             
             # Test decryption
-            if decrypt_test "$client" "$test_id" "$encrypted_file" > "$decrypted_file" 2>/dev/null; then
+            decrypt_test "$client" "$test_id" "$encrypted_file" > "$decrypted_file" 2>/dev/null && rc=0 || rc=$?
+            if [[ $rc -eq $RC_UNAVAILABLE ]]; then
+                log_skip "  [$client] Harness not installed - skipping"
+                SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
+                rm -rf "$tmp_dir"
+                continue
+            elif [[ $rc -eq 0 ]]; then
                 log_pass "  [$client] Decryption successful"
-                ((PASSED_TESTS++))
+                PASSED_TESTS=$((PASSED_TESTS + 1))
             else
                 log_fail "  [$client] Decryption failed"
-                ((FAILED_TESTS++))
+                FAILED_TESTS=$((FAILED_TESTS + 1))
                 rm -rf "$tmp_dir"
                 if [[ $STOP_ON_FAIL -eq 1 ]]; then
                     exit 1
@@ -417,10 +443,10 @@ run_tests() {
             # Validate metadata
             if validate_metadata "$client" "$test_id" "$(cat "$decrypted_file")"; then
                 log_pass "  [$client] Metadata validation passed"
-                ((PASSED_TESTS++))
+                PASSED_TESTS=$((PASSED_TESTS + 1))
             else
                 log_fail "  [$client] Metadata validation failed"
-                ((FAILED_TESTS++))
+                FAILED_TESTS=$((FAILED_TESTS + 1))
                 if [[ $STOP_ON_FAIL -eq 1 ]]; then
                     rm -rf "$tmp_dir"
                     exit 1
@@ -432,7 +458,7 @@ run_tests() {
         done
         
         log_info ""
-    done
+    done 3< <(load_test_vectors)
 }
 
 # Summary
@@ -450,7 +476,13 @@ print_summary() {
     fi
     log_info ""
     
-    if [[ $FAILED_TESTS -eq 0 ]] && [[ $TOTAL_TESTS -gt 0 ]]; then
+    # A run where every client was skipped is not a passing run. Reporting it
+    # as one is how an entire corpus goes unexercised without anyone noticing.
+    if [[ $PASSED_TESTS -eq 0 ]] && [[ $SKIPPED_TESTS -gt 0 ]] && [[ $FAILED_TESTS -eq 0 ]]; then
+        log_skip "Nothing was exercised - no client harness is installed."
+        log_skip "Set WALLET_FRONTEND_PATH / SIROS_SDK_KOTLIN_PATH / SIROS_SDK_SWIFT_PATH."
+        return 0
+    elif [[ $FAILED_TESTS -eq 0 ]] && [[ $PASSED_TESTS -gt 0 ]]; then
         log_pass "All tests passed! ✓"
         return 0
     else
