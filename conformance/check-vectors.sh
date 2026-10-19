@@ -46,6 +46,7 @@ evaluate_case() {
     local has; has=$(jq -r '.response.credential_metadata|has("org.siros.secret_seed")' <<<"$c" 2>/dev/null || echo false)
     if [[ "$has" == true ]]; then
         jq -e '.jweEncrypted == true' <<<"$c" >/dev/null || { echo refuse; return; }
+        jq -e '(.responseType // "credential") != "deferred"' <<<"$c" >/dev/null || { echo refuse; return; }
         jq -e '.response.notification_id|type=="string" and length>0' <<<"$c" >/dev/null || { echo refuse; return; }
         jq -e ".response|$SEED_SHAPE" <<<"$c" >/dev/null || { echo refuse; return; }
     fi

@@ -1,6 +1,6 @@
 # SIROS Wallet Private Data Blob Specification (Normative)
 
-Version: 2.4  
+Version: 2.5  
 Date: 2026-10-16  
 Status: Normative (reference implementation aligned)
 
@@ -195,6 +195,26 @@ as an issuer, for example by an issuer in an OpenID4VCI credential response (the
 derives itself, for example `private_seed`, is out of scope of this section and
 is covered in Section 5.4.
 
+### 5A.0 Parties
+
+The rules of this section name the party that enforces them. The party that
+performs the OpenID4VCI request and receives the response is the "OpenID4VCI
+client": the wallet itself, or a component acting for the wallet, for example an
+engine. The party that merges display metadata is the "metadata merger". The
+wallet that holds the encrypted container is the "secret store". One process MAY
+fill several of these roles. When they are different processes:
+
+- the OpenID4VCI client enforces the request for `credential_response_encryption`,
+  the refusal of a plain response, the refusal of a deferred response that
+  carries a seed (Section 5A.2), and the `notification_id` rule;
+- the metadata merger enforces stripping (Section 5A.3); a party that receives
+  the unstripped `credential_metadata` object MUST strip the seed itself before
+  passing the object on to any display-metadata consumer;
+- the seed is handed only to the secret store.
+
+Below, "the wallet or its OpenID4VCI client" means the OpenID4VCI client role
+in this sense.
+
 ### 5A.1 Wire shape
 
 A delivered `secret_seed` is carried in the response-level `credential_metadata`
@@ -236,10 +256,17 @@ extension rule requires, and its value is an object:
 ### 5A.2 Rules
 
 - A response that carries `org.siros.secret_seed` MUST be a JWE-encrypted
-  response. A wallet MUST refuse a plain (unencrypted) response that carries the
-  member: the issuance fails and nothing from the response is stored.
-- The response MUST carry a `notification_id`. A wallet MUST treat a response
-  that carries a seed but no `notification_id` as a failed issuance.
+  response. The wallet or its OpenID4VCI client MUST refuse a plain
+  (unencrypted) response that carries the member: the issuance fails and
+  nothing from the response is stored.
+- Seed delivery over a Deferred Credential Response is not supported in this
+  version. A Deferred Credential Response that carries `org.siros.secret_seed`,
+  whether plain or encrypted, MUST be refused by the wallet or its OpenID4VCI
+  client, and the issuance fails. (Note, non-normative: a later version may
+  define delivery over an encrypted deferred response.)
+- The response MUST carry a `notification_id`. The wallet or its OpenID4VCI
+  client MUST treat a response that carries a seed but no `notification_id` as
+  a failed issuance.
 - A malformed `org.siros.secret_seed` member (Section 5A.1) is a failed
   issuance.
 - The wallet MUST verify the commitment (below) before storing the seed. A
@@ -279,7 +306,7 @@ an object. `org.siros.secret_seed` is such a member, at the top level of
 `credential_metadata`; it is not nested in a `display` entry. Because the object
 is shared with display data, the following apply:
 
-- STRIP BEFORE MERGE. A wallet MUST remove `org.siros.secret_seed` from the
+- STRIP BEFORE MERGE. The wallet or its OpenID4VCI client (the metadata merger of Section 5A.0) MUST remove `org.siros.secret_seed` from the
   `credential_metadata` object before any merge into display metadata,
   rendering, caching or logging. The seed goes only to the secret store
   (`S.credentials[].metadata`, Section 6). The remainder of the object (the
@@ -297,7 +324,7 @@ Example. Issuer metadata holds, for the configuration,
 `{"display":[{"name":"Nym","locale":"en"}],"org.siros.secret_seed":{"namespaces":["org.siros.nym_auth"]}}`.
 The response carries
 `{"display":[{"name":"Nym v2","locale":"en"}],"org.siros.secret_seed":{"org.siros.nym_auth":"00112233445566778899aabbccddeeff"}}`.
-The wallet strips the member, giving `{"display":[{"name":"Nym v2","locale":"en"}]}`,
+The metadata merger strips the member, giving `{"display":[{"name":"Nym v2","locale":"en"}]}`,
 and merges that over the issuer metadata (members of the response overwrite
 members of the same name). The merged display metadata is
 `{"display":[{"name":"Nym v2","locale":"en"}],"org.siros.secret_seed":{"namespaces":["org.siros.nym_auth"]}}`
@@ -316,10 +343,10 @@ that configuration's `credential_metadata`:
 ```
 
 `namespaces` is an array of 1 to 8 distinct namespace names (Section 5A.1 rules
-for a name). Only names appear, never values. A wallet that sees the
-advertisement MUST request `credential_response_encryption` for that issuance,
-because OpenID4VCI encrypts the response only when asked, and MUST refuse a
-plain response. (The refusal of a plain response that carries a seed holds
+for a name). Only names appear, never values. The wallet or its OpenID4VCI
+client, when it sees the advertisement, MUST request
+`credential_response_encryption` for that issuance, because OpenID4VCI encrypts
+the response only when asked, and MUST refuse a plain response. (The refusal of a plain response that carries a seed holds
 regardless of the advertisement.)
 
 Note (non-normative). Alternative considered: a separate top-level response
@@ -328,6 +355,19 @@ would keep the secret out of the shared display object and make stripping
 unnecessary. It was not chosen because the decision is to use the response-level
 `credential_metadata` object of OpenID4VCI#721, and because relays are required
 to preserve unknown members of that object but not necessarily of the response.
+
+### 5A.5 Limits and extension
+
+The limits of this section (1 to 8 namespaces, a namespace of 1 to 64 UTF-8
+bytes, a seed of 32 lowercase hexadecimal characters = 16 bytes, and the
+reserved name `namespaces`) are the limits of this version of the
+specification. An implementation MUST NOT hard-code them in a way that prevents
+extension: they SHOULD be named constants or configuration. A later version may
+raise them or add seed lengths. Until a version defines otherwise, a value
+outside these limits is malformed (Section 5A.1). No negotiation parameter is
+defined in this version; a later version that raises a limit or adds a seed
+length introduces its own member name, so wallets of this version, which ignore
+unknown members of `credential_metadata`, are not affected.
 
 Test vectors: `delivered-secret-commitment-001`, `delivered-secret-wire-001`,
 `delivered-secret-malformed-001`, `delivered-secret-refusal-001`,
@@ -658,3 +698,4 @@ All three documents are non-normative.
 - 2.2 (2026-10-16): Section 5A (delivered secrets) added; Section 6 gains the optional `S.credentials[].metadata` member and the rule that unknown credential-entry and `S` members MUST be preserved. Additive; `S.schemaVersion` remains `3`.
 - 2.3 (2026-10-16): Section 5.4 (derived secrets, including the `private_seed` derivation of Section 5.4.1) added. Additive; `S.schemaVersion` remains `3`.
 - 2.4 (2026-10-19): Section 5A rewritten: delivered `secret_seed` uses the OpenID4VCI 1.1 response-level `credential_metadata` object (openid/OpenID4VCI#721, working draft) with the member `org.siros.secret_seed`. Wire shape, JWE-only, `notification_id` and malformed-input rules added. Section 5A also gains the strip-before-merge, never-public and advertisement rules (5A.3, 5A.4). Storage in `S.credentials[].metadata` is unchanged in form; `S.schemaVersion` remains `3`.
+- 2.5 (2026-10-19): Section 5A gains 5A.0 (which party enforces which rule when the OpenID4VCI client, the metadata merger and the secret store are different processes), the statement that seed delivery over a Deferred Credential Response is not supported, and 5A.5 (the limits are those of this version and MUST NOT be hard-coded in a way that prevents extension). Minor bump, as for 2.2 to 2.4, because it adds normative text without changing any wire shape or the container; `S.schemaVersion` remains `3`.
