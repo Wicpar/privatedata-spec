@@ -226,9 +226,9 @@ extension rule requires, and its value is an object:
   lowercase hexadecimal characters (`[0-9a-f]`), the 16-byte seed. Uppercase or
   mixed-case hexadecimal, a different length, a non-string value, or an empty or
   over-sized object is malformed.
-- A response MUST NOT carry a delivered secret in any other form. The former
-  per-credential `credentials[i].credential_metadata` array of `{type, value}`
-  entries is not a delivery channel of this specification.
+- A response MUST NOT carry a delivered secret in any other form. If present,
+  `credential_metadata` MUST be a JSON object; an array or any other type is
+  malformed and the issuance fails.
 - Wallets MUST ignore members of `credential_metadata` that they do not
   understand, and relays and proxies MUST preserve them verbatim. A wallet that
   stores them does so under Section 6 (below).
@@ -657,4 +657,4 @@ All three documents are non-normative.
 - 2.1 (2026-08-28): Section 6.1 (`S.extensions`: namespaced extension state, `set_extension` events, namespace registry) and Section 6.2 (deprecation of the legacy top-level fields `wscdCredentials` and `credentialRefreshTokens`) added. Additive; `S.schemaVersion` remains `3`.
 - 2.2 (2026-10-16): Section 5A (delivered secrets) added; Section 6 gains the optional `S.credentials[].metadata` member and the rule that unknown credential-entry and `S` members MUST be preserved. Additive; `S.schemaVersion` remains `3`.
 - 2.3 (2026-10-16): Section 5.4 (derived secrets, including the `private_seed` derivation of Section 5.4.1) added. Additive; `S.schemaVersion` remains `3`.
-- 2.4 (2026-10-19): Section 5A rewritten: delivered `secret_seed` uses the OpenID4VCI 1.1 response-level `credential_metadata` object (openid/OpenID4VCI#721, working draft) with the member `org.siros.secret_seed`, replacing the per-credential `credential_metadata` array. Wire shape, JWE-only, `notification_id` and malformed-input rules added. Section 5A also gains the strip-before-merge, never-public and advertisement rules (5A.3, 5A.4). Storage in `S.credentials[].metadata` is unchanged in form; `S.schemaVersion` remains `3`.
+- 2.4 (2026-10-19): Section 5A rewritten: delivered `secret_seed` uses the OpenID4VCI 1.1 response-level `credential_metadata` object (openid/OpenID4VCI#721, working draft) with the member `org.siros.secret_seed`. Wire shape, JWE-only, `notification_id` and malformed-input rules added. Section 5A also gains the strip-before-merge, never-public and advertisement rules (5A.3, 5A.4). Storage in `S.credentials[].metadata` is unchanged in form; `S.schemaVersion` remains `3`.

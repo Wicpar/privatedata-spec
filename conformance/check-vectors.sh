@@ -42,6 +42,7 @@ evaluate_strip() {
 # evaluate_case <case-json>: prints "accept <stored-metadata-json>" or "refuse".
 evaluate_case() {
     local c=$1 ns seed ssc calc
+    jq -e '.response|(has("credential_metadata")|not) or (.credential_metadata|type=="object")' <<<"$c" >/dev/null || { echo refuse; return; }
     local has; has=$(jq -r '.response.credential_metadata|has("org.siros.secret_seed")' <<<"$c" 2>/dev/null || echo false)
     if [[ "$has" == true ]]; then
         jq -e '.jweEncrypted == true' <<<"$c" >/dev/null || { echo refuse; return; }
