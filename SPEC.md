@@ -1,6 +1,6 @@
 # SIROS Wallet Private Data Blob Specification (Normative)
 
-Version: 2.5  
+Version: 2.6  
 Date: 2026-10-16  
 Status: Normative (reference implementation aligned)
 
@@ -369,6 +369,25 @@ defined in this version; a later version that raises a limit or adds a seed
 length introduces its own member name, so wallets of this version, which ignore
 unknown members of `credential_metadata`, are not affected.
 
+### 5A.6 Designation of the commitment namespace (PROPOSAL, awaiting decision)
+
+Section 5A.2 verifies the seed of "the namespace that the credential type
+designates". Proposed mechanism, in order of authority:
+
+1. The issuer's per-configuration advertisement (Section 5A.4) lists the
+   namespace(s). If it lists exactly one namespace, that namespace is the
+   commitment namespace of the configuration.
+2. The credential type's rulebook names the namespace in which its commitment
+   claim (for `nym_auth`, `ssc`) is verified. The rulebook is the source of
+   truth; the advertisement MUST NOT contradict it, and a wallet that knows the
+   rulebook's namespace uses it, treating a different advertised namespace as a
+   failed issuance.
+3. A wallet MAY hold a table from credential type to namespace, generated from
+   the rulebooks. It is a cache of item 2, not an independent source.
+
+If no namespace can be determined, or the determined namespace is absent from
+the response object, verification fails (Section 5A.2).
+
 Test vectors: `delivered-secret-commitment-001`, `delivered-secret-wire-001`,
 `delivered-secret-malformed-001`, `delivered-secret-refusal-001`,
 `delivered-secret-strip-001` and `delivered-secret-advertise-001` in
@@ -699,3 +718,4 @@ All three documents are non-normative.
 - 2.3 (2026-10-16): Section 5.4 (derived secrets, including the `private_seed` derivation of Section 5.4.1) added. Additive; `S.schemaVersion` remains `3`.
 - 2.4 (2026-10-19): Section 5A rewritten: delivered `secret_seed` uses the OpenID4VCI 1.1 response-level `credential_metadata` object (openid/OpenID4VCI#721, working draft) with the member `org.siros.secret_seed`. Wire shape, JWE-only, `notification_id` and malformed-input rules added. Section 5A also gains the strip-before-merge, never-public and advertisement rules (5A.3, 5A.4). Storage in `S.credentials[].metadata` is unchanged in form; `S.schemaVersion` remains `3`.
 - 2.5 (2026-10-19): Section 5A gains 5A.0 (which party enforces which rule when the OpenID4VCI client, the metadata merger and the secret store are different processes), the statement that seed delivery over a Deferred Credential Response is not supported, and 5A.5 (the limits are those of this version and MUST NOT be hard-coded in a way that prevents extension). Minor bump, as for 2.2 to 2.4, because it adds normative text without changing any wire shape or the container; `S.schemaVersion` remains `3`.
+- 2.6 (PROPOSAL, unmerged): Section 5A.6, designation of the commitment namespace.
