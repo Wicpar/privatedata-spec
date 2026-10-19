@@ -56,13 +56,14 @@ Each line in `vectors.jsonl` is a complete JSON object describing one test case:
 
 - **single-credential-v3.json**: One passkey, simple metadata
 - **multi-passkey-v3.json**: Multiple credentials, tests PRF entry selection
-- **metadata-preservation.json**: All credential/keypair metadata fields present
+- **metadata-preservation.json**: All credential/keypair metadata fields present, including the optional credential `metadata` member and the unknown-member rule
 - **legacy-v1-symmetric.json**: Old symmetric mainKey format (read-only test)
 
 ### Edge Cases (edge-cases/)
 
 - **max-size-container.json**: Large credential set, near practical limits
 - **unicode-credentials.json**: Non-ASCII characters in credential names/issuers
+- **unknown-credential-members.json**: Unknown per-credential and top-level members, duplicate `metadata` types
 - **empty-presentations.json**: No presentations or issuance sessions
 - **minimal-state.json**: Minimal required fields only
 - **missing-optional-fields.json**: Test optional field handling
@@ -107,9 +108,13 @@ Every implementation MUST pass these validations for every vector:
 1. **Encryption Determinism**: Encrypting the same plaintext + PRF inputs MUST produce byte-for-byte identical output
 2. **Decryption Fidelity**: Decrypting the expected container MUST parse to the plaintext state
 3. **Round-trip**: Decrypt → parse → re-encrypt MUST produce identical container bytes
-4. **Metadata Preservation**: All credential/keypair fields in plaintext MUST appear in encrypted state
+4. **Metadata Preservation**: All credential/keypair fields in plaintext MUST appear in encrypted state, as MUST every unknown member of a credential entry or of `S`, and credential `metadata` (SPEC.md Section 6)
 5. **Event Preservation**: `events[]` and `lastEventHash` MUST be identical after round-trip
 6. **Field Completeness**: `presentations`, `credentialIssuanceSessions` MUST be preserved (not empty if present)
+
+### Metadata and delivered-secret vectors
+
+Vectors with `expected.roundTripState` state the state a conforming reader writes back (compared as JSON, array order significant); `expected.plaintextStateSha256` / `roundTripStateSha256` are SHA-256 over the compact JSON encoding of the respective state with members in the order written. `conformance/check-vectors.sh` verifies these offline (needs only `jq`, `xxd`, `sha256sum`).
 
 ## Vector Maintenance
 
