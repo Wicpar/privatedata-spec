@@ -1,7 +1,7 @@
 # SIROS Wallet Private Data Blob Specification (Normative)
 
-Version: 2.0  
-Date: 2026-06-22  
+Version: 2.3  
+Date: 2026-10-16  
 Status: Normative (reference implementation aligned)
 
 ## 1. Scope and Source of Truth
@@ -187,6 +187,31 @@ Test vectors: `test-vectors/derived-secrets.json` (fixed roots; self-generated
 with independent code, not yet cross-checked between clients). A client
 conforming to this section MUST reproduce `seed_hex` and `psc_hex` for every
 vector from `root_hex` and `credential_type`.
+## 5A. Delivered secrets
+
+A delivered secret is a secret value chosen and supplied by a counterparty such
+as an issuer, for example by an issuer in an OpenID4VCI credential response (the
+`nym_auth` credential's `secret_seed`, delivered as an entry of
+`credential_metadata`). A secret that the wallet generates or derives itself, for
+example `private_seed`, is out of scope of this section and is covered in Section 5.4.
+
+Rules:
+
+- A delivered secret MAY be stored, in the `metadata` member of the credential
+  entry it belongs to (Section 6).
+- It is protected exactly like all other container contents: it exists in
+  plaintext only inside the encrypted container (Section 5.3) and the unlocked
+  wallet.
+- It MUST NOT be logged, displayed, or exported in clear, and MUST NOT be sent
+  to the backend other than inside the encrypted container.
+- It MUST be deleted together with the credential entry it belongs to.
+- If the credential makes a commitment to the secret, the wallet MUST verify the
+  commitment against the issuer-signed credential before storing the secret and
+  again before each use, and MUST treat a mismatch as a failed issuance (the
+  secret MUST NOT be stored or used). For `nym_auth` the commitment is
+  `SHA256(secret_seed) == ssc`, where `ssc` is the claim of the issuer-signed
+  credential and `secret_seed` is the 16-byte value carried as lowercase
+  hexadecimal.
 
 ## 6. JWE Plaintext: WalletStateContainer
 
@@ -215,6 +240,257 @@ Normative requirements:
 - `S.credentials[]` entries MUST preserve wallet metadata fields (`format`, `kid`, `instanceId`, `batchId`, `credentialIssuerIdentifier`, `credentialConfigurationId`).
 - `S.settings.openidRefreshTokenMaxAgeInSeconds` MUST be preserved.
 - `presentations` and `credentialIssuanceSessions` MUST be preserved.
+- A reader that rewrites the container MUST preserve, with an identical value,
+  every member of an `S.credentials[]` entry that it does not understand, and
+  every member of `S` that it does not understand, and likewise every member of
+  a `metadata` entry (below). Preservation applies to the JSON value, not only
+  to the wallet metadata fields named above. An implementation that cannot
+  preserve such a member MUST refuse to rewrite the container rather than drop
+  the member.
+
+`S.credentials[]` entries MAY carry the member `metadata`:
+
+```json
+{
+  "id": "cred-001",
+  "format": "dc+sd-jwt",
+  "metadata": [
+    { "type": "org.siros.NS.secret_seed", "value": "00112233445566778899aabbccddeeff" }
+  ]
+}
+```
+
+- `metadata` is OPTIONAL. If present it MUST be an array of objects, each with a
+  `type` member that is a non-empty string and a `value` member that is any
+  JSON value.
+- Entries MUST be stored exactly as received from the party that supplied them
+  (for credentials obtained by OpenID4VCI, the issuer's `credential_metadata`
+  from the credential response). The container does not interpret an entry. The
+  order of entries MUST be preserved, and several entries MAY have the same
+  `type`; the consumer of a `type` defines its meaning.
+- A writer MUST NOT emit `metadata` when there is nothing to store: it MUST NOT
+  emit `null` or an empty array. A reader MUST accept an absent member and an
+  empty array, and treat both as no metadata.
+- `metadata` holds data tied to one credential entry, for example secrets
+  delivered by the issuer (Section 5A) or tokens that give the holder control
+  over revocation of that credential. It MUST NOT hold display metadata, which
+  is re-fetched from the issuer, and MUST NOT hold secrets that the wallet
+  generates or derives itself. The member name is unrelated to display metadata
+  that implementations keep elsewhere.
+- Adding `metadata` is additive; `S.schemaVersion` remains `3`.
+
+### 6.1 `S.extensions`
+
+Clients MAY carry state this specification does not define, under a single
+namespaced field. `S.extensions` is an object keyed by **namespace**; each
+namespace is an object keyed by **entry key**; each value is an opaque
+string.
+
+```json
+"extensions": {
+  "org.siros.wscd": { "kid-a1b2": "<opaque>", "kid-c3d4": "<opaque>" },
+  "org.siros.bbs":  { "1849302113": "<opaque>" }
+}
+```
+
+Namespaces are reverse-DNS strings, registered in §6.1.6. Registration is a
+change to this document.
+
+- Readers MUST NOT interpret a value in a namespace they do not own.
+- In addition to any other preservation requirement of this specification, a
+  reader that rewrites the container MUST preserve, with identical values,
+  every namespace of `S.extensions` and every extension event that it does not
+  recognise. An unrecognised namespace is not an error.
+
+A reader that does not implement this section sees `S.extensions` as an
+unknown member of `S` and handles it as it would any other unknown member.
+
+*Non-normative guidance — extension namespace or entry member.* State that a
+client defines for its own use (key handles, renewal material, the holder
+state of a credential scheme) belongs in a namespace of `S.extensions`. Data
+that a counterparty such as an issuer supplies for exactly one credential
+entry, and that the wallet stores as received without interpreting it, is
+carried in that entry, not in an extension: it then travels with the entry,
+and deleting the entry deletes it. Where this specification defines a member
+of the credential entry for such data, that member is used. State that spans
+several entities, such as one refresh token shared by a batch of credentials,
+is not tied to a single entry and belongs in an extension keyed by the entity
+(`batchId`). Do not store the same datum in both places.
+
+*Non-normative illustration:*
+
+```typescript
+type Extensions = Record<Namespace, Record<EntryKey, OpaqueValue>>;
+type WalletStateV3 = { /* … */ extensions?: Extensions };
+```
+
+#### 6.1.1 Entry keys
+
+An entry key MUST identify a single entity the wallet already tracks — a key
+identifier, a credential identifier, a batch identifier. An entry key MUST
+NOT name a subsystem, a plugin, or a category.
+
+*Non-normative illustration — the rule exists because resolution is
+per key:*
+
+```typescript
+// Conformant: two devices enrolling two authenticators write disjoint keys.
+const ok: Extensions = {
+  "org.siros.wscd": { "kid-a1b2": "…", "kid-c3d4": "…" },
+};
+
+// Non-conformant: one entry for the whole plugin. Concurrent writes collide
+// on a single key, and last-write-wins discards one authenticator.
+const notOk: Extensions = {
+  "org.siros.wscd": { "fido2": "…" },
+};
+```
+
+#### 6.1.2 Size
+
+- A namespace's state size MUST be proportional to entities the user can
+  enumerate and delete.
+- A namespace MUST NOT grow its state with the number of events. An entry
+  value MUST NOT accumulate an append-only history.
+- Deleting the entity an entry key names MUST delete the entry.
+
+*Non-normative:* data carried inside a credential entry disappears with the
+entry. An extension entry that concerns a credential lives outside the entry
+and is removed only by the tombstone of §6.1.3, which the client deleting the
+credential has to write.
+
+Implementations SHOULD report per-namespace sizes.
+
+#### 6.1.3 Events, reduction and merge
+
+Extension state MUST be written as events, of type `set_extension`:
+
+```json
+{
+  "type": "set_extension",
+  "schemaVersion": 3,
+  "eventId": 1234,
+  "parentHash": "…",
+  "timestampSeconds": 1756400000,
+  "namespace": "org.siros.bbs",
+  "key": "1849302113",
+  "value": "<opaque string>"
+}
+```
+
+- Reduction MUST set `S.extensions[namespace][key]` to `value`.
+- A `value` of `null` is a tombstone: reduction MUST delete the key.
+- Merge resolution is last-write-wins per `(namespace, key)`, ordered by
+  `timestampSeconds` and, where equal, by `eventId`. The tiebreak is
+  REQUIRED.
+- Tombstones MUST survive event-history folding for at least the maximum
+  permitted time between folds (§6.1.4).
+
+*Non-normative illustration — reduction, total over unknown namespaces:*
+
+```typescript
+function extensionsReducer(state: Extensions = {}, e: WalletSessionEvent): Extensions {
+  if (e.type !== "set_extension") return state;
+  const ns = { ...(state[e.namespace] ?? {}) };
+  if (e.value === null) delete ns[e.key];
+  else ns[e.key] = e.value;
+  return { ...state, [e.namespace]: ns };
+}
+```
+
+*Non-normative illustration — merge, with the required tiebreak:*
+
+```typescript
+const setExtensionStrategy: MergeStrategy = (_mbesv, a, b) =>
+  deduplicateBy(
+    a.concat(b)
+      .filter(e => e.type === "set_extension")
+      // Descending, so deduplicateBy (which keeps the first occurrence)
+      // retains the newest event per key.
+      .sort(compareBy(e => [-e.timestampSeconds, -e.eventId])),
+    e => `${e.namespace}\u0000${e.key}`,
+  );
+```
+
+*Non-normative deployment note:* a client that predates `set_extension` may
+fail, rather than ignore, an event type it does not know when it merges
+divergent histories (`docs/EXTENSIONS-DESIGN.md` §2.2). Writers therefore
+introduce `set_extension` events only once the clients sharing the account
+tolerate unknown event types; until then the `S.extensions` shape can be
+written without events (`docs/EXTENSIONS-DESIGN.md` §6.1).
+
+Folding is order-independent: for a given key the result is the value of the
+greatest `(timestampSeconds, eventId)` among its events, whether a client
+folds a prefix of the history or all of it. A client MAY therefore fold a
+namespace it does not understand, and the folded state does not depend on
+which client folded it.
+
+#### 6.1.4 Peers beyond the fold horizon
+
+A peer that has not synchronised within the fold horizon no longer shares a
+reachable common ancestor, and no correct merge exists for any part of the
+state.
+
+- Implementations MUST NOT silently reconcile such histories.
+- When no common ancestor is found, the implementation MUST surface the
+  divergence and let the user choose which wallet is authoritative.
+- Concatenating the two histories produces an invalid event chain and MUST
+  NOT be treated as a merge result.
+
+*Non-normative illustration:*
+
+```typescript
+const base = await findMergeBase(local, remote);
+if (base === null) {
+  // Not an error to report and not a merge to attempt: the user decides.
+  throw new DivergedBeyondFoldHorizon({ local, remote });
+}
+return mergeFrom(base, local, remote);
+```
+
+#### 6.1.5 Versions and dependencies
+
+A namespace identifier MAY carry a version suffix (`org.siros.bbs/v2`). A
+versioned namespace is independent of its predecessor: its own registry
+entry and its own state.
+
+- Clients MUST NOT assume support for one version implies support for
+  another.
+- An entity's state lives under whichever version was current when the
+  entity was created. New entities MUST be written to the newest version the
+  creating client supports.
+- Clients MUST NOT be required to migrate extension state between versions.
+  A container MAY hold several versions indefinitely.
+- A client MUST NOT delete state belonging to a version it does not support.
+- Where a newer version's state is derivable from the older, that
+  namespace's registration MAY specify a migration, which MUST be performed
+  only by a client supporting both versions.
+
+If a namespace's correct processing depends on another namespace — such that
+reducing its events while ignoring the other's would produce wrong state —
+its registration MUST declare that dependency, and a client supporting the
+dependent namespace MUST also support the one it depends on.
+
+#### 6.1.6 Namespace registry
+
+| Namespace | Owner | Entry key | Value | Depends on |
+|---|---|---|---|---|
+| `org.siros.wscd` | WSCD plugins (native SDKs) | `kid` | Key metadata needed to address a key created on a roaming authenticator: credential handle, public key, plugin identity. Never private key material | — |
+| `org.siros.bbs` | Blind BBS credentials (native SDKs) | credential id | Blinding factor, committed messages, bound key binding public keys, and the key handles needed to exercise the key binding private keys | `org.siros.wscd` |
+| `org.siros.oid4vci.refresh` | OID4VCI renewal (native SDKs) | `batchId` | `refresh_token` and the DPoP key it is bound to | — |
+
+### 6.2 Legacy top-level extension fields (deprecated)
+
+Native SDKs released before §6.1 write two top-level fields under `S`:
+`wscdCredentials`, keyed by WSCD plugin ID, and `credentialRefreshTokens`,
+keyed by stringified `batchId`. Neither was described by a published version
+of this document.
+
+- Readers MAY accept both for migration.
+- Writers MUST NOT emit them. The namespaces in §6.1.6 replace them.
+
+A reader that does not migrate these fields handles them as unknown members
+of `S`.
 
 ## 7. Legacy Compatibility Rules
 
@@ -238,3 +514,24 @@ Backend optimistic concurrency is part of privateData lifecycle:
 - `wallet-frontend/src/services/WalletStateSchemaVersion1.ts`
 - `wallet-frontend/src/services/WalletStateSchemaVersion3.ts`
 - `wallet-frontend/src/util.ts`
+
+### 9.1 Design documents (non-normative)
+
+Design rationale, the evidence behind the rules of Section 6.1, and a
+comparison with the typed-collection approach of
+`wwWallet/wallet-frontend#751` are in
+[`docs/EXTENSIONS-DESIGN.md`](docs/EXTENSIONS-DESIGN.md).
+
+An alternative in which the state layer is a CRDT document rather than an
+event log — which would remove the need for §6.1 entirely — is specified for
+comparison in
+[`docs/SPEC-ALTERNATIVE-AUTOMERGE.md`](docs/SPEC-ALTERNATIVE-AUTOMERGE.md).
+Sequencing for both is in [`docs/ROLLOUT-PLAN.md`](docs/ROLLOUT-PLAN.md).
+
+All three documents are non-normative.
+
+## 10. Changes
+
+- 2.1 (2026-08-28): Section 6.1 (`S.extensions`: namespaced extension state, `set_extension` events, namespace registry) and Section 6.2 (deprecation of the legacy top-level fields `wscdCredentials` and `credentialRefreshTokens`) added. Additive; `S.schemaVersion` remains `3`.
+- 2.2 (2026-10-16): Section 5A (delivered secrets) added; Section 6 gains the optional `S.credentials[].metadata` member and the rule that unknown credential-entry and `S` members MUST be preserved. Additive; `S.schemaVersion` remains `3`.
+- 2.3 (2026-10-16): Section 5.4 (derived secrets, including the `private_seed` derivation of Section 5.4.1) added. Additive; `S.schemaVersion` remains `3`.
