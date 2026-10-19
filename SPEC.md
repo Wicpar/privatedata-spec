@@ -1,6 +1,6 @@
 # SIROS Wallet Private Data Blob Specification (Normative)
 
-Version: 2.3  
+Version: 2.4  
 Date: 2026-10-16  
 Status: Normative (reference implementation aligned)
 
@@ -191,14 +191,66 @@ vector from `root_hex` and `credential_type`.
 
 A delivered secret is a secret value chosen and supplied by a counterparty such
 as an issuer, for example by an issuer in an OpenID4VCI credential response (the
-`nym_auth` credential's `secret_seed`, delivered as an entry of
-`credential_metadata`). A secret that the wallet generates or derives itself, for
-example `private_seed`, is out of scope of this section and is covered in Section 5.4.
+`nym_auth` credential's `secret_seed`). A secret that the wallet generates or
+derives itself, for example `private_seed`, is out of scope of this section and
+is covered in Section 5.4.
 
-Rules:
+### 5A.1 Wire shape
 
-- A delivered secret MAY be stored, in the `metadata` member of the credential
-  entry it belongs to (Section 6).
+A delivered `secret_seed` is carried in the response-level `credential_metadata`
+object of the OpenID4VCI 1.1 Credential Response and Deferred Credential
+Response (openid/OpenID4VCI#721, merged into the 1.1 working draft on
+2026-06-11). OpenID4VCI 1.1 is a working draft and may still change; the member
+name `org.siros.secret_seed` is defined by this specification, not by
+OpenID4VCI. It is a collision-resistant member name, as the OpenID4VCI
+extension rule requires, and its value is an object:
+
+```json
+{
+  "credentials": [ { "credential": "..." } ],
+  "notification_id": "3fwe98js",
+  "credential_metadata": {
+    "org.siros.secret_seed": {
+      "<namespace>": "00112233445566778899aabbccddeeff"
+    }
+  }
+}
+```
+
+- There is ONE `credential_metadata` object per response. It applies to every
+  credential in that response; credentials of one batch share one subject and
+  one seed. It is not repeated per credential.
+- The value of `org.siros.secret_seed` is an object that maps a namespace to a
+  seed. A namespace is a non-empty string of at most 64 UTF-8 bytes. The object
+  has at least one and at most 8 members. A seed is a JSON string of exactly 32
+  lowercase hexadecimal characters (`[0-9a-f]`), the 16-byte seed. Uppercase or
+  mixed-case hexadecimal, a different length, a non-string value, or an empty or
+  over-sized object is malformed.
+- A response MUST NOT carry a delivered secret in any other form. The former
+  per-credential `credentials[i].credential_metadata` array of `{type, value}`
+  entries is not a delivery channel of this specification.
+- Wallets MUST ignore members of `credential_metadata` that they do not
+  understand, and relays and proxies MUST preserve them verbatim. A wallet that
+  stores them does so under Section 6 (below).
+
+### 5A.2 Rules
+
+- A response that carries `org.siros.secret_seed` MUST be a JWE-encrypted
+  response. A wallet MUST refuse a plain (unencrypted) response that carries the
+  member: the issuance fails and nothing from the response is stored.
+- The response MUST carry a `notification_id`. A wallet MUST treat a response
+  that carries a seed but no `notification_id` as a failed issuance.
+- A malformed `org.siros.secret_seed` member (Section 5A.1) is a failed
+  issuance.
+- The wallet MUST verify the commitment (below) before storing the seed. A
+  mismatch is a failed issuance: the seed MUST NOT be stored or used and the
+  wallet MUST NOT accept the credentials of the response.
+- A delivered secret MAY be stored in the `metadata` member of the credential
+  entry it belongs to (Section 6). The wallet stores, in each credential entry
+  of the response, one `metadata` entry whose `type` is the member name
+  (`org.siros.secret_seed`) and whose `value` is the member's object exactly as
+  received. Other `credential_metadata` members that the wallet chooses to keep
+  are stored in the same way, in the order received. See the example in Section 6.
 - It is protected exactly like all other container contents: it exists in
   plaintext only inside the encrypted container (Section 5.3) and the unlocked
   wallet.
@@ -210,8 +262,15 @@ Rules:
   again before each use, and MUST treat a mismatch as a failed issuance (the
   secret MUST NOT be stored or used). For `nym_auth` the commitment is
   `SHA256(secret_seed) == ssc`, where `ssc` is the claim of the issuer-signed
-  credential and `secret_seed` is the 16-byte value carried as lowercase
-  hexadecimal.
+  credential and `secret_seed` is the 16-byte value decoded from the lowercase
+  hexadecimal string of the namespace that the credential type designates. A
+  credential type with no designated namespace present in the object fails
+  verification. Seeds of other namespaces are stored as received and are
+  verified only if a commitment for them exists.
+
+Test vectors: `delivered-secret-commitment-001`, `delivered-secret-wire-001`,
+`delivered-secret-malformed-001` and `delivered-secret-refusal-001` in
+`test-vectors/vectors.jsonl`.
 
 ## 6. JWE Plaintext: WalletStateContainer
 
@@ -255,7 +314,7 @@ Normative requirements:
   "id": "cred-001",
   "format": "dc+sd-jwt",
   "metadata": [
-    { "type": "org.siros.NS.secret_seed", "value": "00112233445566778899aabbccddeeff" }
+    { "type": "org.siros.secret_seed", "value": { "NS": "00112233445566778899aabbccddeeff" } }
   ]
 }
 ```
@@ -264,8 +323,9 @@ Normative requirements:
   `type` member that is a non-empty string and a `value` member that is any
   JSON value.
 - Entries MUST be stored exactly as received from the party that supplied them
-  (for credentials obtained by OpenID4VCI, the issuer's `credential_metadata`
-  from the credential response). The container does not interpret an entry. The
+  (for credentials obtained by OpenID4VCI, each member of the issuer's
+  response-level `credential_metadata` becomes one entry whose `type` is the
+  member name and whose `value` is the member value; see Section 5A.2). The container does not interpret an entry. The
   order of entries MUST be preserved, and several entries MAY have the same
   `type`; the consumer of a `type` defines its meaning.
 - A writer MUST NOT emit `metadata` when there is nothing to store: it MUST NOT
@@ -535,3 +595,4 @@ All three documents are non-normative.
 - 2.1 (2026-08-28): Section 6.1 (`S.extensions`: namespaced extension state, `set_extension` events, namespace registry) and Section 6.2 (deprecation of the legacy top-level fields `wscdCredentials` and `credentialRefreshTokens`) added. Additive; `S.schemaVersion` remains `3`.
 - 2.2 (2026-10-16): Section 5A (delivered secrets) added; Section 6 gains the optional `S.credentials[].metadata` member and the rule that unknown credential-entry and `S` members MUST be preserved. Additive; `S.schemaVersion` remains `3`.
 - 2.3 (2026-10-16): Section 5.4 (derived secrets, including the `private_seed` derivation of Section 5.4.1) added. Additive; `S.schemaVersion` remains `3`.
+- 2.4 (2026-10-19): Section 5A rewritten: delivered `secret_seed` uses the OpenID4VCI 1.1 response-level `credential_metadata` object (openid/OpenID4VCI#721, working draft) with the member `org.siros.secret_seed`, replacing the per-credential `credential_metadata` array. Wire shape, JWE-only, `notification_id` and malformed-input rules added. Storage in `S.credentials[].metadata` is unchanged in form; `S.schemaVersion` remains `3`.

@@ -116,6 +116,8 @@ Every implementation MUST pass these validations for every vector:
 
 Vectors with `expected.roundTripState` state the state a conforming reader writes back (compared as JSON, array order significant); `expected.plaintextStateSha256` / `roundTripStateSha256` are SHA-256 over the compact JSON encoding of the respective state with members in the order written. `conformance/check-vectors.sh` verifies these offline (needs only `jq`, `xxd`, `sha256sum`).
 
+The delivered-secret vectors (SPEC.md Section 5A) are cases of the form `{response, jweEncrypted, commitmentNamespace, sscHex, expected}`, where `response` is an OpenID4VCI Credential Response using the response-level `credential_metadata` object. `delivered-secret-wire-001` (accept: single and multiple namespaces, batch, unknown member preserved), `delivered-secret-malformed-001` (refuse: hex case, length, over-cap, wrong types) and `delivered-secret-refusal-001` (refuse: plain response, missing `notification_id`, commitment mismatch, absent namespace, former per-credential array). `check-vectors.sh` evaluates every case against the Section 5A rules.
+
 ## Vector Maintenance
 
 When adding new test vectors:
