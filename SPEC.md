@@ -429,9 +429,7 @@ private keys (Section 6, `keypairs`). The state is a JSON object, and the
 | `credentialIssuerIdentifier` | string | The Credential Issuer Identifier. `wallet-frontend` writes the empty string when it is not known. |
 | `credentialConfigurationId` | string | The `credential_configuration_id`. `wallet-frontend` writes the empty string when it is not known. |
 
-- A writer MUST emit all eight members. A reader MUST treat an entry whose
-  `credentialId`, `instanceId` or `batchId` is not a JSON number that is an
-  integer as invalid and MUST NOT substitute a default (for example `0`) for it.
+- A writer MUST emit all eight members.
 - The member `id` is not defined. An entry that carries an `id` member (or any
   other member not listed above) is subject to the preservation rule above.
 - Example:
