@@ -1,6 +1,6 @@
 # SIROS Wallet Private Data Blob Specification (Normative)
 
-Version: 2.5  
+Version: 2.6  
 Date: 2026-10-16  
 Status: Normative (reference implementation aligned)
 
@@ -398,7 +398,7 @@ Normative requirements:
 - `S.schemaVersion` MUST be `3` for newly written state.
 - `events` and `lastEventHash` MUST be preserved as authored unless explicitly folded/merged by event logic.
 - `S.keypairs[].keypair.privateKey` MUST contain JWK private key material for ES256 signing keys.
-- `S.credentials[]` entries MUST preserve wallet metadata fields (`format`, `kid`, `instanceId`, `batchId`, `credentialIssuerIdentifier`, `credentialConfigurationId`).
+- `S.credentials[]` entries MUST have the members defined in Section 6.0.
 - `S.settings.openidRefreshTokenMaxAgeInSeconds` MUST be preserved.
 - `presentations` and `credentialIssuanceSessions` MUST be preserved.
 - A reader that rewrites the container MUST preserve, with an identical value,
@@ -409,17 +409,64 @@ Normative requirements:
   preserve such a member MUST refuse to rewrite the container rather than drop
   the member.
 
+### 6.0 `S.credentials[]` entry
+
+The entry members are those that `wallet-frontend` stores
+(`src/services/WalletStateSchemaVersion1.ts`, `credentialReducer`). Schema
+versions 2 and 3 do not change the credential entry: version 2 changes how
+presentation events are deduplicated and version 3 changes the storage of
+private keys (Section 6, `keypairs`). The state is a JSON object, and the
+"number" members are JSON numbers that are integers.
+
+| Member | JSON type | Meaning |
+|---|---|---|
+| `credentialId` | number (integer) | Identifier of the entry, unique within `S.credentials`. `wallet-frontend` assigns a random unsigned 32-bit integer, so implementations MUST hold it in a 64-bit integer or wider (not a signed 32-bit one). It is the key by which `usedCredentialIds` of presentations and `delete_credential` events refer to the entry. |
+| `data` | string | The stored credential, in the serialization of its `format`. It is opaque to this specification. |
+| `format` | string | The credential format identifier, for example `dc+sd-jwt`. |
+| `kid` | string | Identifier of the key pair in `S.keypairs[]` that the credential is bound to. |
+| `instanceId` | number (integer) | Index of this instance (one-time-use copy) within its batch. |
+| `batchId` | number (integer) | Identifier shared by all instances issued in one batch (assigned at issuance, a random unsigned 32-bit integer in `wallet-frontend`). Use a 64-bit integer. |
+| `credentialIssuerIdentifier` | string | The Credential Issuer Identifier. `wallet-frontend` writes the empty string when it is not known. |
+| `credentialConfigurationId` | string | The `credential_configuration_id`. `wallet-frontend` writes the empty string when it is not known. |
+
+- A writer MUST emit all eight members.
+- The member `id` is not defined. An entry that carries an `id` member (or any
+  other member not listed above) is subject to the preservation rule above.
+- Example:
+
+```json
+{
+  "credentialId": 1,
+  "format": "dc+sd-jwt",
+  "data": "<credential>",
+  "kid": "2026-10-key-001",
+  "instanceId": 0,
+  "batchId": 1,
+  "credentialIssuerIdentifier": "https://issuer.example.com",
+  "credentialConfigurationId": "org.siros.nym_auth"
+}
+```
+
+Difference from `wallet-frontend` (known, not resolved here): `credentialReducer`
+builds each entry from exactly the eight members above, so a state that
+`wallet-frontend` re-folds from events does not retain `metadata` or unknown
+members. Preservation of those members, required by this section, is therefore
+met by the native SDKs and not yet by `wallet-frontend`.
+
 `S.credentials[]` entries MAY carry the member `metadata`:
 
 ```json
 {
-  "id": "cred-001",
+  "credentialId": 1,
   "format": "dc+sd-jwt",
   "metadata": [
     { "type": "org.siros.secret_seed", "value": { "NS": "00112233445566778899aabbccddeeff" } }
   ]
 }
 ```
+
+(The example shows only the members relevant here; a real entry carries all
+eight members of Section 6.0 as well.)
 
 - `metadata` is OPTIONAL. If present it MUST be an array of objects, each with a
   `type` member that is a non-empty string and a `value` member that is any
@@ -699,3 +746,4 @@ All three documents are non-normative.
 - 2.3 (2026-10-16): Section 5.4 (derived secrets, including the `private_seed` derivation of Section 5.4.1) added. Additive; `S.schemaVersion` remains `3`.
 - 2.4 (2026-10-19): Section 5A rewritten: delivered `secret_seed` uses the OpenID4VCI 1.1 response-level `credential_metadata` object (openid/OpenID4VCI#721, working draft) with the member `org.siros.secret_seed`. Wire shape, JWE-only, `notification_id` and malformed-input rules added. Section 5A also gains the strip-before-merge, never-public and advertisement rules (5A.3, 5A.4). Storage in `S.credentials[].metadata` is unchanged in form; `S.schemaVersion` remains `3`.
 - 2.5 (2026-10-19): Section 5A gains 5A.0 (which party enforces which rule when the OpenID4VCI client, the metadata merger and the secret store are different processes), the statement that seed delivery over a Deferred Credential Response is not supported, and 5A.5 (the limits are those of this version and MUST NOT be hard-coded in a way that prevents extension). Minor bump, as for 2.2 to 2.4, because it adds normative text without changing any wire shape or the container; `S.schemaVersion` remains `3`.
+- 2.6 (2026-10-20): Section 6.0 defines the `S.credentials[]` entry exactly as `wallet-frontend` stores it (`credentialId`, `instanceId` and `batchId` are numbers, `data` is the stored credential; no `id` member). The previous example and vectors used a string `id` and string `instanceId`/`batchId` and no `data`, which no implementation produced. Vectors single-credential-v3-001, multi-passkey-v3-001, the metadata vectors and the fixtures use the corrected form. Wire and container unchanged; `S.schemaVersion` remains `3`.

@@ -75,7 +75,7 @@ Each SDK must expose two entry points:
 - **MUST** implement JWE with `alg=A256GCMKW, enc=A256GCM`
 - **MUST** derive HKDF-SHA-256 with normative info string `"eDiplomas PRF"`
 - **MUST** preserve full WalletStateContainer (events, lastEventHash, presentations, credentialIssuanceSessions)
-- **MUST** preserve credential metadata (format, kid, instanceId, batchId)
+- **MUST** preserve credential metadata (`credentialId`, `data`, `format`, `kid`, `instanceId`, `batchId`; SPEC Section 6.0)
 - **MUST** preserve keypair DID (not recompute)
 - **MUST** use "0" as default for `openidRefreshTokenMaxAgeInSeconds`
 - **MUST** support optimistic concurrency via ETag headers

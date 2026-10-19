@@ -2,8 +2,15 @@
   "id": "multi-passkey-v3-001",
   "description": "Multiple passkeys with correct PRF entry selection by credentialId",
   "version": "3",
-  "sections": ["4.3", "5", "6"],
-  "tags": ["multi-passkey", "prf-selection"],
+  "sections": [
+    "4.3",
+    "5",
+    "6"
+  ],
+  "tags": [
+    "multi-passkey",
+    "prf-selection"
+  ],
   "purpose": "Tests that unlock() selects correct PRF entry by credentialId match, not external state",
   "inputs": {
     "credentialIds": [
@@ -25,39 +32,71 @@
     "plaintextState": {
       "lastEventHash": "sha256:multi-passkey-event-hash",
       "events": [
-        {"type": "credential-1-added", "credentialId": "first-credential-id-for-testing"},
-        {"type": "credential-2-added", "credentialId": "second-credential-id-for-testing"},
-        {"type": "credential-3-added", "credentialId": "third-credential-id-for-testing"}
+        {
+          "type": "credential-1-added",
+          "credentialId": "first-credential-id-for-testing"
+        },
+        {
+          "type": "credential-2-added",
+          "credentialId": "second-credential-id-for-testing"
+        },
+        {
+          "type": "credential-3-added",
+          "credentialId": "third-credential-id-for-testing"
+        }
       ],
       "S": {
         "schemaVersion": 3,
         "credentials": [
           {
-            "id": "cred-001",
+            "credentialId": 1,
             "format": "msomdoc",
+            "data": "<test-vector-placeholder-credential-payload-1>",
             "kid": "key-001",
-            "credentialIssuerIdentifier": "https://issuer1.example.com"
+            "instanceId": 0,
+            "batchId": 1,
+            "credentialIssuerIdentifier": "https://issuer1.example.com",
+            "credentialConfigurationId": "eu.europa.ec.eudi.pid.1"
           },
           {
-            "id": "cred-002",
+            "credentialId": 2,
             "format": "msomdoc",
+            "data": "<test-vector-placeholder-credential-payload-2>",
             "kid": "key-002",
-            "credentialIssuerIdentifier": "https://issuer2.example.com"
+            "instanceId": 0,
+            "batchId": 2,
+            "credentialIssuerIdentifier": "https://issuer2.example.com",
+            "credentialConfigurationId": "eu.europa.ec.eudi.pid.1"
           },
           {
-            "id": "cred-003",
+            "credentialId": 3,
             "format": "msomdoc",
+            "data": "<test-vector-placeholder-credential-payload-3>",
             "kid": "key-003",
-            "credentialIssuerIdentifier": "https://issuer3.example.com"
+            "instanceId": 0,
+            "batchId": 3,
+            "credentialIssuerIdentifier": "https://issuer3.example.com",
+            "credentialConfigurationId": "eu.europa.ec.eudi.pid.1"
           }
         ],
         "keypairs": [
-          {"id": "kp-001", "did": "did:key:...001"},
-          {"id": "kp-002", "did": "did:key:...002"},
-          {"id": "kp-003", "did": "did:key:...003"}
+          {
+            "id": "kp-001",
+            "did": "did:key:...001"
+          },
+          {
+            "id": "kp-002",
+            "did": "did:key:...002"
+          },
+          {
+            "id": "kp-003",
+            "did": "did:key:...003"
+          }
         ],
         "presentations": [],
-        "settings": {"openidRefreshTokenMaxAgeInSeconds": "0"},
+        "settings": {
+          "openidRefreshTokenMaxAgeInSeconds": "0"
+        },
         "credentialIssuanceSessions": []
       }
     }

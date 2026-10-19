@@ -11,6 +11,15 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../test-vectors"
 fail=0; n=0
 
+# SPEC.md Section 6.0: S.credentials[] entry shape (as wallet-frontend stores it).
+ENTRY_SHAPE='(has("id")|not) and (.credentialId|type=="number" and .==floor and .>=0)
+  and (.data|type=="string") and (.format|type=="string") and (.kid|type=="string")
+  and (.instanceId|type=="number" and .==floor and .>=0) and (.batchId|type=="number" and .==floor and .>=0)
+  and (.credentialIssuerIdentifier|type=="string") and (.credentialConfigurationId|type=="string")'
+check_entries() { # check_entries <label> <json-array-of-entries>
+    jq -e "length>0 and all(.[]; $ENTRY_SHAPE)" <<<"$2" >/dev/null || { echo "FAIL $1: credential entry violates SPEC Section 6.0"; fail=1; return 1; }
+}
+
 # Section 5A.1 shape of org.siros.secret_seed: object of 1..8 members, namespace a
 # non-empty string of <= 64 bytes, seed exactly 32 lowercase hex characters.
 SEED_SHAPE='(.credential_metadata["org.siros.secret_seed"]) as $m
@@ -59,6 +68,13 @@ evaluate_case() {
 }
 while IFS= read -r line; do
     id=$(jq -r .id <<<"$line")
+    for src in .inputs.plaintextState.S.credentials .expected.roundTripState.S.credentials; do
+        ents=$(jq -c "$src // empty" <<<"$line")
+        if [[ -n "$ents" && "$ents" != "[]" ]]; then check_entries "$id $src" "$ents" && echo "ok   $id entries ($src)"; fi
+    done
+    if [[ "$id" == delivered-secret-commitment-001 ]]; then
+        check_entries "$id credentialAfterAccept" "$(jq -c '[.expected.credentialAfterAccept]' <<<"$line")" && echo "ok   $id entry"
+    fi
     if jq -e '.expected.plaintextStateSha256' <<<"$line" >/dev/null 2>&1; then
         n=$((n+1))
         for pair in "inputs.plaintextState:plaintextStateSha256" "expected.roundTripState:roundTripStateSha256"; do
@@ -136,5 +152,16 @@ while IFS= read -r line; do
         if [[ $ok == 1 ]]; then echo "ok   $id ($ncases cases)"; else fail=1; fi
     fi
 done < vectors.jsonl
+# Fixtures that carry a plaintextState (same entry shape).
+for f in fixtures/*.json edge-cases/*.json; do
+    ents=$(jq -c '(.inputs.plaintextState.S.credentials // .sample.credentials) // empty | select(length>0 and (.[0]|type=="object"))' "$f")
+    [[ -n "$ents" ]] || continue
+    if [[ "$f" == edge-cases/unknown-credential-members.json ]]; then
+        jq -e 'all(.[]; (has("id")|not) and (.credentialId|type=="number") and (.data|type=="string"))' <<<"$ents" >/dev/null || { echo "FAIL $f: entry shape"; fail=1; continue; }
+    else
+        check_entries "$f" "$ents" || continue
+    fi
+    echo "ok   $f"
+done
 echo "checked $n vectors, fail=$fail"
 exit $fail
