@@ -223,7 +223,7 @@ for part in parts:
 ### 4.1 Credentials Array
 
 Preserve insertion order from original state:
-- Do NOT sort by ID
+- Do NOT sort by `credentialId`
 - Do NOT sort by issuance date
 - Maintain order as authored
 
@@ -231,9 +231,9 @@ Example:
 ```json
 {
   "credentials": [
-    {"id": "cred-003", "format": "msomdoc"},
-    {"id": "cred-001", "format": "msomdoc"},
-    {"id": "cred-002", "format": "msomdoc"}
+    {"credentialId": 3, "format": "dc+sd-jwt", "data": "..."},
+    {"credentialId": 1, "format": "dc+sd-jwt", "data": "..."},
+    {"credentialId": 2, "format": "dc+sd-jwt", "data": "..."}
   ]
 }
 ```

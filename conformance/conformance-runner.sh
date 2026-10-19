@@ -315,7 +315,7 @@ validate_metadata() {
     log_verbose "[$client] Validating metadata preservation for $test_id..."
     
     # Check required credential fields
-    local required_fields=("format" "kid" "instanceId" "batchId" "credentialIssuerIdentifier")
+    local required_fields=("credentialId" "data" "format" "kid" "instanceId" "batchId" "credentialIssuerIdentifier")
     for field in "${required_fields[@]}"; do
         if echo "$decrypted_state" | jq -e ".S.credentials[0].${field}" > /dev/null 2>&1; then
             log_verbose "  ✓ credential.$field present"
