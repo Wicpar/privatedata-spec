@@ -4,6 +4,7 @@
 # no client SDK. Verifies that every vector with expected.plaintextStateSha256 /
 # roundTripStateSha256 hashes consistently (compact JSON, key order as written),
 # that credential `metadata` obeys SPEC.md Section 6 in the expected states, and
+# that derived-secrets.json (Section 5.4.1) is reproduced from the roots with openssl,
 # that the delivered-secret commitment vector and the wire-shape / malformed /
 # refusal vectors (Section 5A) hold: each case's response is evaluated against the
 # Section 5A rules and must give the vector's expected outcome and stored metadata.
@@ -163,5 +164,57 @@ for f in fixtures/*.json edge-cases/*.json; do
     fi
     echo "ok   $f"
 done
+
+# SPEC.md Section 5.4.1: private_seed = HKDF-SHA256(mainKey, salt = empty,
+# info = label || lp(type) || lp(issuer))[:16]. One HKDF block, computed with
+# openssl HMAC (messages go through stdin, so a 65535-byte field is no problem).
+PS_LABEL_HEX=$(printf '%s' "org.siros.private_seed/v2" | xxd -p | tr -d '\n')
+field_hex() { # field_hex <json> <name>: UTF-8 bytes of .name, or of .name_fill 'a's
+    local fill; fill=$(jq -r ".${2}_fill // empty" <<<"$1")
+    if [[ -n "$fill" ]]; then head -c "$fill" /dev/zero | tr '\0' a | xxd -p | tr -d '\n'
+    else jq -j ".${2} // \"\"" <<<"$1" | xxd -p | tr -d '\n'; fi
+}
+lp_hex() { # lp_hex <hex>: 2-byte big-endian length || bytes; fails if length is 0 or > 65535
+    local n=$(( ${#1} / 2 ))
+    (( n >= 1 && n <= 65535 )) || return 1
+    printf '%04x%s' "$n" "$1"
+}
+hmac_hex() { # hmac_hex <key-hex> : HMAC-SHA256 of stdin
+    openssl dgst -sha256 -mac HMAC -macopt "hexkey:$1" -binary | xxd -p -c 64 | tr -d '\n'
+}
+derive_seed() { # derive_seed <vector-json>: prints "seed_hex psc_hex", or fails (refused)
+    local v=$1 root th ih info prk seed
+    root=$(jq -r .root_hex <<<"$v")
+    th=$(lp_hex "$(field_hex "$v" credential_type)") || return 1
+    ih=$(lp_hex "$(field_hex "$v" issuer)") || return 1
+    info="${PS_LABEL_HEX}${th}${ih}01"
+    prk=$(printf '%s' "$root" | xxd -r -p | hmac_hex "$(printf '0%.0s' {1..64})")
+    seed=$(printf '%s' "$info" | xxd -r -p | hmac_hex "$prk" | cut -c1-32)
+    echo "$seed $(printf '%s' "$seed" | xxd -r -p | sha256sum | cut -d' ' -f1)"
+}
+ds=derived-secrets.json
+if [[ -f "$ds" ]]; then
+    n=$((n+1)); ok=1; declare -A got_seed
+    [[ "$(jq -r .label "$ds")" == "org.siros.private_seed/v2" ]] || { echo "FAIL derived-secrets: label"; ok=0; }
+    nv=$(jq '.vectors|length' "$ds"); [[ "$nv" -gt 0 ]] || { echo "FAIL derived-secrets: no vectors"; ok=0; }
+    for ((k=0;k<nv;k++)); do
+        v=$(jq -c ".vectors[$k]" "$ds"); nm=$(jq -r .name <<<"$v")
+        if r=$(derive_seed "$v"); then
+            got_seed["$nm"]=${r% *}
+            [[ "$r" == "$(jq -r '"\(.seed_hex) \(.psc_hex)"' <<<"$v")" ]] || { echo "FAIL derived-secrets[$k] $nm: got $r"; ok=0; }
+        else echo "FAIL derived-secrets[$k] $nm: refused"; ok=0; fi
+    done
+    nr=$(jq '.refused|length' "$ds"); [[ "$nr" -gt 0 ]] || { echo "FAIL derived-secrets: no refusal vectors"; ok=0; }
+    for ((k=0;k<nr;k++)); do
+        v=$(jq -c ".refused[$k]" "$ds")
+        if derive_seed "$v" >/dev/null; then echo "FAIL derived-secrets refused[$k] $(jq -r .name <<<"$v"): not refused"; ok=0; fi
+    done
+    nd=$(jq '.must_differ|length' "$ds"); [[ "$nd" -gt 0 ]] || { echo "FAIL derived-secrets: no must_differ pairs"; ok=0; }
+    for ((k=0;k<nd;k++)); do
+        a=$(jq -r ".must_differ[$k][0]" "$ds"); b=$(jq -r ".must_differ[$k][1]" "$ds")
+        if [[ -z "${got_seed[$a]:-}" || -z "${got_seed[$b]:-}" || "${got_seed[$a]}" == "${got_seed[$b]}" ]]; then echo "FAIL derived-secrets must_differ[$k]: '$a' vs '$b'"; ok=0; fi
+    done
+    if [[ $ok == 1 ]]; then echo "ok   derived-secrets ($nv vectors, $nr refused, $nd distinct pairs)"; else fail=1; fi
+fi
 echo "checked $n vectors, fail=$fail"
 exit $fail
