@@ -1,6 +1,6 @@
 # SIROS Wallet Private Data Blob Specification (Normative)
 
-Version: 2.6  
+Version: 2.7  
 Date: 2026-10-16  
 Status: Normative (reference implementation aligned)
 
@@ -171,22 +171,47 @@ Rules:
 
 ### 5.4.1 Private seed
 
-The holder's private seed for a credential type is:
+The holder's private seed for a credential type at an issuer is:
 
-    private_seed = HKDF-SHA256(mainKey, salt = empty, info = "org.siros.private_seed/v1" || credentialType)[:16]
+    private_seed = HKDF-SHA256(mainKey, salt = empty,
+                               info = "org.siros.private_seed/v2" || lp(credentialType) || lp(issuer))[:16]
+    psc          = SHA-256(private_seed)
 
-`credentialType` is an opaque string supplied by the caller (for example a
-document type or a `vct`), UTF-8 encoded and not interpreted. The seed is
-therefore stable per credential type: it does not depend on a credential id,
-a batch or an issuance. The commitment to it is `SHA-256(private_seed)`.
+where `lp(x)` is the 2-byte big-endian length of the UTF-8 encoding of `x`
+followed by those bytes. The encoding is injective: `("ab", "c")` and
+`("a", "bc")` give different `info` values.
 
-The label `org.siros.private_seed/v1` is a proposal and needs the
-specification owner's decision.
+- `credentialType` is an opaque string supplied by the caller (for example a
+  document type or a `vct`), UTF-8 encoded and not interpreted.
+- `issuer` is the Credential Issuer Identifier exactly as the credential
+  carries it (`S.credentials[].credentialIssuerIdentifier`, Section 6.0). It is
+  compared and encoded as an exact string, with no normalisation: a trailing
+  slash, a different case or a different scheme gives a different seed.
+- An empty `credentialType`, an empty `issuer`, or a field whose UTF-8 encoding
+  is longer than 65535 bytes MUST be refused: no seed is derived.
+- The seed is stable per (credential type, issuer): it does not depend on a
+  credential id, a batch or an issuance. The commitment to it is `psc`.
+- If an issuer changes its Credential Issuer Identifier, the `private_seed` and
+  the `psc` for that issuer change. Continuity at that issuer then needs an
+  operator-approved reset (the issuer accepts the new `psc` for the person).
 
-Test vectors: `test-vectors/derived-secrets.json` (fixed roots; self-generated
-with independent code, not yet cross-checked between clients). A client
-conforming to this section MUST reproduce `seed_hex` and `psc_hex` for every
-vector from `root_hex` and `credential_type`.
+Rationale (non-normative). Different issuers see different `psc` values for the
+same person, so issuers cannot correlate their users through `psc`. A ban at
+one issuer therefore does not follow a person to another issuer; this is the
+rulebook's own NOTE 1 (if the issuer changes, it may allow a new `psc`).
+
+The label `org.siros.private_seed/v1` was a proposal that depended on the
+credential type only. It was never released and is withdrawn. `v2` is the only
+defined label; an implementation MUST NOT derive with `v1`.
+
+Test vectors: `test-vectors/derived-secrets.json` (fixed roots, several issuers
+and credential types, injectivity pairs and refused inputs; self-generated with
+independent code, not yet cross-checked between clients). A client conforming
+to this section MUST reproduce `seed_hex` and `psc_hex` for every vector from
+`root_hex`, `credential_type` and `issuer`, MUST refuse every entry of
+`refused`, and MUST give different seeds for every pair of `must_differ`.
+`conformance/check-vectors.sh` recomputes all of them.
+
 ## 5A. Delivered secrets
 
 A delivered secret is a secret value chosen and supplied by a counterparty such
@@ -747,3 +772,4 @@ All three documents are non-normative.
 - 2.4 (2026-10-19): Section 5A rewritten: delivered `secret_seed` uses the OpenID4VCI 1.1 response-level `credential_metadata` object (openid/OpenID4VCI#721, working draft) with the member `org.siros.secret_seed`. Wire shape, JWE-only, `notification_id` and malformed-input rules added. Section 5A also gains the strip-before-merge, never-public and advertisement rules (5A.3, 5A.4). Storage in `S.credentials[].metadata` is unchanged in form; `S.schemaVersion` remains `3`.
 - 2.5 (2026-10-19): Section 5A gains 5A.0 (which party enforces which rule when the OpenID4VCI client, the metadata merger and the secret store are different processes), the statement that seed delivery over a Deferred Credential Response is not supported, and 5A.5 (the limits are those of this version and MUST NOT be hard-coded in a way that prevents extension). Minor bump, as for 2.2 to 2.4, because it adds normative text without changing any wire shape or the container; `S.schemaVersion` remains `3`.
 - 2.6 (2026-10-20): Section 6.0 defines the `S.credentials[]` entry exactly as `wallet-frontend` stores it (`credentialId`, `instanceId` and `batchId` are numbers, `data` is the stored credential; no `id` member). The previous example and vectors used a string `id` and string `instanceId`/`batchId` and no `data`, which no implementation produced. Vectors single-credential-v3-001, multi-passkey-v3-001, the metadata vectors and the fixtures use the corrected form. Wire and container unchanged; `S.schemaVersion` remains `3`.
+- 2.7 (2026-10-20): Section 5.4.1: the private seed depends on the issuer (label `org.siros.private_seed/v2`, `info = label || lp(credentialType) || lp(issuer)`); `v1` withdrawn, it was never released. `derived-secrets.json` regenerated. `S.schemaVersion` remains `3`.
