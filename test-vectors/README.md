@@ -107,7 +107,7 @@ Every implementation MUST pass these validations for every vector:
 
 1. **Encryption Determinism**: Encrypting the same plaintext + PRF inputs MUST produce byte-for-byte identical output
 2. **Decryption Fidelity**: Decrypting the expected container MUST parse to the plaintext state
-3. **Round-trip**: Decrypt → parse → re-encrypt MUST produce identical container bytes, except where a vector states `expected.roundTripState`: then the rewritten state MUST equal that state. Schema migration is the one permitted exception to byte identity: version 3 to 4 changes `S.schemaVersion` and nothing else (`single-credential-v3-001`, `multi-passkey-v3-001`, `schema-version-migrate-v3-001`)
+3. **Round-trip**: Decrypt → parse → re-encrypt MUST produce identical container bytes, except where a vector states `expected.roundTripState`: then the rewritten state MUST equal that state. Two changes are permitted, and only where `expected.roundTripState` states them: schema migration (version 3 to 4 changes `S.schemaVersion` and nothing else: `single-credential-v3-001`, `multi-passkey-v3-001`, `schema-version-migrate-v3-001`) and the removal of an empty `metadata` array, which a writer MUST NOT emit (`credential-metadata-empty-array-001`)
 4. **Metadata Preservation**: All credential/keypair fields in plaintext MUST appear in encrypted state, as MUST every unknown member of a credential entry or of `S`, and credential `metadata` (SPEC.md Section 6)
 5. **Event Preservation**: `events[]` and `lastEventHash` MUST be identical after round-trip
 6. **Field Completeness**: `presentations`, `credentialIssuanceSessions` MUST be preserved (not empty if present)

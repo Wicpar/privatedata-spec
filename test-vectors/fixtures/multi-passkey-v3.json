@@ -129,9 +129,9 @@
     "statePreservation": [
       "all three credentials preserved",
       "all three keypairs preserved",
-      "events array complete with all three new_credential events",
+      "events preserved as authored (one alter_settings event, schemaVersion 3)",
       "lastEventHash unchanged"
     ],
-    "roundTrip": "decrypt(expected.container) -> re-encrypt -> must equal expected.container"
+    "roundTrip": "decrypt -> migrate -> re-encrypt: a version 4 writer changes only S.schemaVersion 3 to 4 and nothing else (see expected.roundTripState of the vector with the same state)"
   }
 }
