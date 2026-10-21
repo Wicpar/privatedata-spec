@@ -44,6 +44,18 @@ EVENT_TYPES='["new_credential","delete_credential","new_keypair","delete_keypair
 EVENT_OK='def event_ok: (.schemaVersion|type=="number" and .==floor and .>=1 and .<=4)
   and (.type as $t | '"$EVENT_TYPES"' | index($t) != null) and (.type!="set_extension" or .schemaVersion==4);'
 
+# dupfree: folds .events over .S the way wallet-frontend's reducers do and is true when no
+# new_credential / new_keypair / new_presentation event creates an id that already exists.
+FOLD_DUPFREE='def dupfree: . as $st | reduce ($st.events // [])[] as $e
+  ({c:[$st.S.credentials[]?.credentialId], k:[$st.S.keypairs[]? | select(type=="object") | .kid], p:[$st.S.presentations[]?.presentationId], bad:false};
+   if   $e.type=="new_credential"    then (if (.c|index($e.credentialId))   then .bad=true else .c+=[$e.credentialId] end)
+   elif $e.type=="delete_credential" then .c-=[$e.credentialId]
+   elif $e.type=="new_keypair"       then (if (.k|index($e.kid))            then .bad=true else .k+=[$e.kid] end)
+   elif $e.type=="delete_keypair"    then .k-=[$e.kid]
+   elif $e.type=="new_presentation"  then (if (.p|index($e.presentationId)) then .bad=true else .p+=[$e.presentationId] end)
+   elif $e.type=="delete_presentation" then .p-=[$e.presentationId]
+   else . end) | .bad|not;'
+
 # evaluate_adv <case-json>: prints valid-advertisement | no-advertisement | malformed.
 evaluate_adv() {
     local c=$1
@@ -100,20 +112,33 @@ while IFS= read -r line; do
         fi
         echo "ok   $id"
     fi
-    # Section 6: a state that is accepted (it has an expected round trip) carries only real,
-    # versioned events of the implemented types; unversioned or unknown events are refused.
-    if jq -e '.expected.roundTripState' <<<"$line" >/dev/null 2>&1; then
-        for path in .inputs.plaintextState .expected.roundTripState; do
-            jq -e "$EVENT_OK ${path}|all(.events[]; event_ok) and (.S.schemaVersion|IN(1,2,3,4))" <<<"$line" >/dev/null || { echo "FAIL $id: $path has an unversioned, unknown or placeholder event"; fail=1; }
-        done
-    fi
+    # Section 6: an accepted vector (anything that is not a refusal vector) carries only real,
+    # versioned events of the implemented types, in EVERY event carrier it has: the state
+    # events, the round-trip events, and the merge histories / event lists of the extension
+    # vectors. Unversioned or unknown events are refused (refusal vectors below).
     case "$id" in
-        schema-version-unknown-state-001|schema-version-unknown-event-version-001|schema-version-unknown-event-type-001|schema-version-event-missing-version-001)
+        schema-version-unknown-state-001|schema-version-unknown-event-version-001|schema-version-unknown-event-type-001|schema-version-event-missing-version-001|extensions-unknown-event-001) refusal=1 ;;
+        *) refusal=0 ;;
+    esac
+    if [[ $refusal == 0 ]]; then
+        jq -e "$EVENT_OK [.inputs.plaintextState.events?, .inputs.events?, .inputs.historyA?, .inputs.historyB?, .expected.roundTripState.events?]
+            | map(select(. != null)) | add // [] | all(.[]; event_ok)" <<<"$line" >/dev/null || { echo "FAIL $id: an event is unversioned, of an unknown type, or a set_extension below schemaVersion 4"; fail=1; }
+        jq -e '.inputs.plaintextState.S.schemaVersion // 4 | IN(1,2,3,4)' <<<"$line" >/dev/null || { echo "FAIL $id: S.schemaVersion not implemented"; fail=1; }
+    fi
+    # Folding the events over S with wallet-frontend's reducers (WalletStateSchemaVersion1.ts:
+    # new_* append, delete_* filter) must not create an identifier that already exists.
+    for path in .inputs.plaintextState .expected.roundTripState; do
+        jq -e "$FOLD_DUPFREE [${path} | select(. != null) | dupfree] | all" <<<"$line" >/dev/null || { echo "FAIL $id: $path creates an event entity that S already holds (folding would duplicate it)"; fail=1; }
+    done
+    case "$id" in
+        schema-version-unknown-state-001|schema-version-unknown-event-version-001|schema-version-unknown-event-type-001|schema-version-event-missing-version-001|extensions-unknown-event-001)
             n=$((n+1))
-            if jq -e "$EVENT_OK .inputs.plaintextState | ((.S.schemaVersion|IN(1,2,3,4))|not) or any(.events[]; event_ok|not)" <<<"$line" >/dev/null; then echo "ok   $id (refused input)"; else echo "FAIL $id: input is not refusable"; fail=1; fi
+            if jq -e "$EVENT_OK ([.inputs.plaintextState.events?, .inputs.historyA?, .inputs.historyB?] | map(select(. != null)) | add // []) as \$ev
+                | ((.inputs.plaintextState.S.schemaVersion // 4) | IN(1,2,3,4) | not) or any(\$ev[]; event_ok|not)" <<<"$line" >/dev/null; then echo "ok   $id (refused input)"; else echo "FAIL $id: input is not refusable"; fail=1; fi
             case "$id" in
                 *unknown-event-version*) jq -e '.inputs.plaintextState.events|any(.[]; (.schemaVersion|type=="number" and .>4))' <<<"$line" >/dev/null || { echo "FAIL $id: no event with a too-new schemaVersion"; fail=1; } ;;
                 *missing-version*) jq -e '.inputs.plaintextState.events|any(.[]; has("schemaVersion")|not)' <<<"$line" >/dev/null || { echo "FAIL $id: every event has a schemaVersion"; fail=1; } ;;
+                extensions-unknown-event-001) jq -e '([.inputs.historyA[],.inputs.historyB[]]|any(.type as $t | '"$EVENT_TYPES"'|index($t)|not))' <<<"$line" >/dev/null || { echo "FAIL $id: no unknown event type in the histories"; fail=1; } ;;
             esac ;;
         schema-version-event-types-001)
             jq -e "$EVENT_TYPES as \$t | ([.inputs.plaintextState.events[].type]|unique) == (\$t|sort)" <<<"$line" >/dev/null || { echo "FAIL $id: not every event type is covered"; fail=1; } ;;
