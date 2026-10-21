@@ -1,7 +1,7 @@
 # SIROS Wallet Private Data Blob Specification (Normative)
 
-Version: 2.8
-Date: 2026-10-21
+Version: 3.0  
+Date: 2026-10-21  
 Status: Normative (reference implementation aligned)
 
 ## 1. Scope and Source of Truth
@@ -282,16 +282,16 @@ extension rule requires, and its value is an object:
 
 - A response that carries `org.siros.secret_seed` MUST be a JWE-encrypted
   response. The wallet or its OpenID4VCI client MUST refuse a plain
-  (unencrypted) response that carries the member: the issuance fails and nothing
-  from the response is stored.
+  (unencrypted) response that carries the member: the issuance fails and
+  nothing from the response is stored.
 - Seed delivery over a Deferred Credential Response is not supported in this
   version. A Deferred Credential Response that carries `org.siros.secret_seed`,
   whether plain or encrypted, MUST be refused by the wallet or its OpenID4VCI
   client, and the issuance fails. (Note, non-normative: a later version may
   define delivery over an encrypted deferred response.)
 - The response MUST carry a `notification_id`. The wallet or its OpenID4VCI
-  client MUST treat a response that carries a seed but no `notification_id` as a
-  failed issuance.
+  client MUST treat a response that carries a seed but no `notification_id` as
+  a failed issuance.
 - A malformed `org.siros.secret_seed` member (Section 5A.1) is a failed
   issuance.
 - The wallet MUST verify the commitment (below) before storing the seed. A
@@ -423,7 +423,7 @@ Normative requirements:
 
 - `S.schemaVersion` MUST be `4` for newly written state, and new events MUST carry `schemaVersion: 4`.
 - Migrating version 3 state to version 4 only sets `schemaVersion` to `4`.
-- A reader MUST read versions 1 to 3 as `wallet-frontend` defines them.
+- A reader MUST read versions 1 to 3 as `wallet-frontend` defines them, and version 4 as this document defines it.
 - A reader MUST refuse to rewrite a container that has a `schemaVersion` it does not implement, in `S` or in any event, or an event type that its versions do not define. It MUST report this as an unsupported version, not as a failed merge.
 - Containers written before Spec 3.0 can already carry `S.extensions` or `metadata` under version 3. A version 4 reader reads them as version 4.
 - `events` and `lastEventHash` MUST be preserved as authored unless explicitly folded/merged by event logic.
@@ -438,6 +438,28 @@ Normative requirements:
   to the wallet metadata fields named above. An implementation that cannot
   preserve such a member MUST refuse to rewrite the container rather than drop
   the member.
+
+Test vectors: `schema-version-unknown-state-001`,
+`schema-version-unknown-event-version-001`,
+`schema-version-unknown-event-type-001`, `schema-version-migrate-v3-001`,
+`schema-version-v3-legacy-members-001` and `schema-version-v3-writer-001` in
+`test-vectors/vectors.jsonl`.
+
+Note (non-normative, deployment). `wallet-frontend`'s `credentialReducer`
+rebuilds each credential entry from the eight members of Section 6.0, so it
+drops `metadata` and any member it does not know. Under version 4 this is a
+conformance gap in `wallet-frontend`, not version 3 behaviour:
+
+- A `wallet-frontend` that implements only version 3 refuses a version 4
+  container (`WalletStateSchemaVersion3.ts`: "Cannot migrate state with
+  schemaVersion 4 to version 3"). It fails loudly and loses nothing, but the
+  user cannot open the wallet there.
+- A `wallet-frontend` that implements version 4 has to preserve `metadata` and
+  `S.extensions` to conform.
+- Rollout order: an SDK that implements this version writes version 4 on every
+  write, not only when it stores a delivered seed (Section 5A.2) or an
+  extension. Version 4 support in `wallet-frontend` therefore has to ship
+  before, or together with, version 4 writes in the SDKs.
 
 ### 6.0 `S.credentials[]` entry
 
@@ -554,7 +576,7 @@ is not tied to a single entry and belongs in an extension keyed by the entity
 
 ```typescript
 type Extensions = Record<Namespace, Record<EntryKey, OpaqueValue>>;
-type WalletStateV3 = { /* … */ extensions?: Extensions };
+type WalletStateV4 = { /* … */ extensions?: Extensions };
 ```
 
 #### 6.1.1 Entry keys
@@ -765,4 +787,4 @@ All three documents are non-normative.
 - 2.5 (2026-10-19): Section 5A gains 5A.0 (which party enforces which rule when the OpenID4VCI client, the metadata merger and the secret store are different processes), the statement that seed delivery over a Deferred Credential Response is not supported, and 5A.5 (the limits are those of this version and MUST NOT be hard-coded in a way that prevents extension). Minor bump, as for 2.2 to 2.4, because it adds normative text without changing any wire shape or the container; `S.schemaVersion` remains `3`.
 - 2.6 (2026-10-20): Section 6.0 defines the `S.credentials[]` entry exactly as `wallet-frontend` stores it (`credentialId`, `instanceId` and `batchId` are numbers, `data` is the stored credential; no `id` member). The previous example and vectors used a string `id` and string `instanceId`/`batchId` and no `data`, which no implementation produced. Vectors single-credential-v3-001, multi-passkey-v3-001, the metadata vectors and the fixtures use the corrected form. Wire and container unchanged; `S.schemaVersion` remains `3`.
 - 2.7 (2026-10-20): Section 5.4.1: the private seed depends on the issuer (label `org.siros.private_seed/v2`, `info = label || lp(credentialType) || lp(issuer)`); `v1` withdrawn, it was never released. `derived-secrets.json` regenerated. `S.schemaVersion` remains `3`.
-- 2.8 (2026-10-21): `S.schemaVersion` 4. `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it.
+- 3.0 (2026-10-21): `S.schemaVersion` 4 (breaking: a version 3 reader refuses a version 4 container). `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it.

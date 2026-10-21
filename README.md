@@ -79,7 +79,7 @@ Each SDK must expose two entry points:
 - **MUST** preserve keypair DID (not recompute)
 - **MUST** use "0" as default for `openidRefreshTokenMaxAgeInSeconds`
 - **MUST** support optimistic concurrency via ETag headers
-- **MUST** write `S.schemaVersion` 4, and read versions 1 to 3
+- **MUST** write `S.schemaVersion` 4, and read versions 1 to 4
 - **MUST** refuse to rewrite a container with a version or event type it does not know
 
 ### Test Coverage
