@@ -49,6 +49,9 @@ ROOT
   <client-defined>: any Automerge type
 ```
 
+`schemaVersion` here numbers the Automerge document schema. It is not
+`S.schemaVersion` of `SPEC.md` §6, which numbers the JSON container.
+
 Collections MUST be maps keyed by the entity's identifier, not lists.
 Automerge merges concurrent list insertions by interleaving them; a map keyed
 by identity gives the same convergence with an identity that survives

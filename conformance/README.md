@@ -304,7 +304,7 @@ Each test vector validates:
 - Ensure ECDH private key is correctly imported
 
 #### "Metadata missing"
-- Verify WalletStateContainer schema version (must be 3)
+- Verify WalletStateContainer schema version (must be 3 or 4)
 - Check credential field mapping
 - Ensure keypair DID is preserved (not recomputed)
 

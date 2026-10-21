@@ -1,7 +1,7 @@
 # SIROS Wallet Private Data Blob Specification (Normative)
 
-Version: 2.7  
-Date: 2026-10-16  
+Version: 3.0  
+Date: 2026-10-21  
 Status: Normative (reference implementation aligned)
 
 ## 1. Scope and Source of Truth
@@ -298,11 +298,12 @@ extension rule requires, and its value is an object:
   mismatch is a failed issuance: the seed MUST NOT be stored or used and the
   wallet MUST NOT accept the credentials of the response.
 - A delivered secret MAY be stored in the `metadata` member of the credential
-  entry it belongs to (Section 6). The wallet stores, in each credential entry
-  of the response, one `metadata` entry whose `type` is the member name
-  (`org.siros.secret_seed`) and whose `value` is the member's object exactly as
-  received. Other `credential_metadata` members that the wallet chooses to keep
-  are stored in the same way, in the order received. See the example in Section 6.
+  entry it belongs to (Section 6; version 4 only). The wallet stores, in each
+  credential entry of the response, one `metadata` entry whose `type` is the
+  member name (`org.siros.secret_seed`) and whose `value` is the member's object
+  exactly as received. Other `credential_metadata` members that the wallet
+  chooses to keep are stored in the same way, in the order received. See the
+  example in Section 6.
 - It is protected exactly like all other container contents: it exists in
   plaintext only inside the encrypted container (Section 5.3) and the unlocked
   wallet.
@@ -408,7 +409,7 @@ The plaintext JSON MUST follow the event-sourced wallet schema used by `wallet-f
   "lastEventHash": "...",
   "events": [ ... ],
   "S": {
-    "schemaVersion": 3,
+    "schemaVersion": 4,
     "credentials": [ ... ],
     "keypairs": [ ... ],
     "presentations": [ ... ],
@@ -420,19 +421,47 @@ The plaintext JSON MUST follow the event-sourced wallet schema used by `wallet-f
 
 Normative requirements:
 
-- `S.schemaVersion` MUST be `3` for newly written state.
+- `S.schemaVersion` MUST be `4` for newly written state, and new events MUST carry `schemaVersion: 4`.
+- Migrating version 3 state to version 4 only sets `schemaVersion` to `4`.
+- A reader MUST read version 3 as `wallet-frontend` defines it, and version 4 as this document defines it. It SHOULD read versions 1 and 2 as `wallet-frontend` defines them. An absent `S.schemaVersion` means version 1.
+- A reader MUST refuse to rewrite a container that has a `schemaVersion` it does not implement, in `S` or in any event, an event without `schemaVersion`, or an event type that its versions do not define. It MUST report this as an unsupported version, not as a failed merge. A reader that cannot migrate version 1 or 2 (for example their key storage) treats them as versions it does not implement.
+- The event types of versions 1 to 3 are `new_credential`, `delete_credential`, `new_keypair`, `delete_keypair`, `new_presentation`, `delete_presentation`, `alter_settings`, `save_credential_issuance_session` and `delete_credential_issuance_session`. Version 4 has these nine and `set_extension`. No other event type is defined.
+- Containers written before Spec 3.0 can already carry `S.extensions` or `metadata`, and `set_extension` events, under version 3. A version 4 reader reads them as version 4, and accepts a `set_extension` event that carries `schemaVersion: 3`. A writer never emits one.
 - `events` and `lastEventHash` MUST be preserved as authored unless explicitly folded/merged by event logic.
 - `S.keypairs[].keypair.privateKey` MUST contain JWK private key material for ES256 signing keys.
 - `S.credentials[]` entries MUST have the members defined in Section 6.0.
 - `S.settings.openidRefreshTokenMaxAgeInSeconds` MUST be preserved.
 - `presentations` and `credentialIssuanceSessions` MUST be preserved.
-- A reader that rewrites the container MUST preserve, with an identical value,
-  every member of an `S.credentials[]` entry that it does not understand, and
-  every member of `S` that it does not understand, and likewise every member of
+- A version 4 reader that rewrites the container MUST preserve, with an identical value,
+  every member of an `S.credentials[]` or `S.keypairs[]` entry that it does
+  not understand, every `S.keypairs[]` entry that it cannot parse, every
+  member of `S` that it does not understand, and likewise every member of
   a `metadata` entry (below). Preservation applies to the JSON value, not only
   to the wallet metadata fields named above. An implementation that cannot
   preserve such a member MUST refuse to rewrite the container rather than drop
   the member.
+
+Test vectors: `schema-version-unknown-state-001`,
+`schema-version-unknown-event-version-001`,
+`schema-version-unknown-event-type-001`, `schema-version-migrate-v3-001`,
+`schema-version-v3-legacy-members-001` and `schema-version-v3-writer-001` in
+`test-vectors/vectors.jsonl`.
+
+Note (non-normative, deployment). `wallet-frontend`'s `credentialReducer`
+rebuilds each credential entry from the eight members of Section 6.0, so it
+drops `metadata` and any member it does not know. Under version 4 this is a
+conformance gap in `wallet-frontend`, not version 3 behaviour:
+
+- A `wallet-frontend` that implements only version 3 refuses a version 4
+  container (`WalletStateSchemaVersion3.ts`: "Cannot migrate state with
+  schemaVersion 4 to version 3"). It fails loudly and loses nothing, but the
+  user cannot open the wallet there.
+- A `wallet-frontend` that implements version 4 has to preserve `metadata` and
+  `S.extensions` to conform.
+- Rollout order: an SDK that implements this version writes version 4 on every
+  write, not only when it stores a delivered seed (Section 5A.2) or an
+  extension. Version 4 support in `wallet-frontend` therefore has to ship
+  before, or together with, version 4 writes in the SDKs.
 
 ### 6.0 `S.credentials[]` entry
 
@@ -440,7 +469,7 @@ The entry members are those that `wallet-frontend` stores
 (`src/services/WalletStateSchemaVersion1.ts`, `credentialReducer`). Schema
 versions 2 and 3 do not change the credential entry: version 2 changes how
 presentation events are deduplicated and version 3 changes the storage of
-private keys (Section 6, `keypairs`). The state is a JSON object, and the
+private keys (Section 6, `keypairs`). Version 4 adds the optional `metadata` member (below). The state is a JSON object, and the
 "number" members are JSON numbers that are integers.
 
 | Member | JSON type | Meaning |
@@ -472,13 +501,7 @@ private keys (Section 6, `keypairs`). The state is a JSON object, and the
 }
 ```
 
-Difference from `wallet-frontend` (known, not resolved here): `credentialReducer`
-builds each entry from exactly the eight members above, so a state that
-`wallet-frontend` re-folds from events does not retain `metadata` or unknown
-members. Preservation of those members, required by this section, is therefore
-met by the native SDKs and not yet by `wallet-frontend`.
-
-`S.credentials[]` entries MAY carry the member `metadata`:
+From version 4, `S.credentials[]` entries MAY carry the member `metadata`:
 
 ```json
 {
@@ -511,11 +534,11 @@ eight members of Section 6.0 as well.)
   is re-fetched from the issuer, and MUST NOT hold secrets that the wallet
   generates or derives itself. The member name is unrelated to display metadata
   that implementations keep elsewhere.
-- Adding `metadata` is additive; `S.schemaVersion` remains `3`.
+- A writer MUST NOT emit `metadata` in a version 3 container.
 
 ### 6.1 `S.extensions`
 
-Clients MAY carry state this specification does not define, under a single
+From version 4, clients MAY carry state this specification does not define, under a single
 namespaced field. `S.extensions` is an object keyed by **namespace**; each
 namespace is an object keyed by **entry key**; each value is an opaque
 string.
@@ -536,8 +559,8 @@ change to this document.
   every namespace of `S.extensions` and every extension event that it does not
   recognise. An unrecognised namespace is not an error.
 
-A reader that does not implement this section sees `S.extensions` as an
-unknown member of `S` and handles it as it would any other unknown member.
+`S.extensions` and `set_extension` are defined from version 4. A writer MUST
+NOT emit them in a version 3 container.
 
 *Non-normative guidance — extension namespace or entry member.* State that a
 client defines for its own use (key handles, renewal material, the holder
@@ -555,7 +578,7 @@ is not tied to a single entry and belongs in an extension keyed by the entity
 
 ```typescript
 type Extensions = Record<Namespace, Record<EntryKey, OpaqueValue>>;
-type WalletStateV3 = { /* … */ extensions?: Extensions };
+type WalletStateV4 = { /* … */ extensions?: Extensions };
 ```
 
 #### 6.1.1 Entry keys
@@ -602,7 +625,7 @@ Extension state MUST be written as events, of type `set_extension`:
 ```json
 {
   "type": "set_extension",
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "eventId": 1234,
   "parentHash": "…",
   "timestampSeconds": 1756400000,
@@ -619,6 +642,11 @@ Extension state MUST be written as events, of type `set_extension`:
   REQUIRED.
 - Tombstones MUST survive event-history folding for at least the maximum
   permitted time between folds (§6.1.4).
+- A client that keeps no event log of its own MUST still append a
+  `set_extension` event to `events`, chained by `parentHash` as
+  `wallet-frontend` chains events, whenever it changes `S.extensions`. A
+  change written only to `S.extensions` is lost when divergent histories are
+  merged.
 
 *Non-normative illustration — reduction, total over unknown namespaces:*
 
@@ -645,13 +673,6 @@ const setExtensionStrategy: MergeStrategy = (_mbesv, a, b) =>
     e => `${e.namespace}\u0000${e.key}`,
   );
 ```
-
-*Non-normative deployment note:* a client that predates `set_extension` may
-fail, rather than ignore, an event type it does not know when it merges
-divergent histories (`docs/EXTENSIONS-DESIGN.md` §2.2). Writers therefore
-introduce `set_extension` events only once the clients sharing the account
-tolerate unknown event types; until then the `S.extensions` shape can be
-written without events (`docs/EXTENSIONS-DESIGN.md` §6.1).
 
 Folding is order-independent: for a given key the result is the value of the
 greatest `(timestampSeconds, eventId)` among its events, whether a client
@@ -773,3 +794,4 @@ All three documents are non-normative.
 - 2.5 (2026-10-19): Section 5A gains 5A.0 (which party enforces which rule when the OpenID4VCI client, the metadata merger and the secret store are different processes), the statement that seed delivery over a Deferred Credential Response is not supported, and 5A.5 (the limits are those of this version and MUST NOT be hard-coded in a way that prevents extension). Minor bump, as for 2.2 to 2.4, because it adds normative text without changing any wire shape or the container; `S.schemaVersion` remains `3`.
 - 2.6 (2026-10-20): Section 6.0 defines the `S.credentials[]` entry exactly as `wallet-frontend` stores it (`credentialId`, `instanceId` and `batchId` are numbers, `data` is the stored credential; no `id` member). The previous example and vectors used a string `id` and string `instanceId`/`batchId` and no `data`, which no implementation produced. Vectors single-credential-v3-001, multi-passkey-v3-001, the metadata vectors and the fixtures use the corrected form. Wire and container unchanged; `S.schemaVersion` remains `3`.
 - 2.7 (2026-10-20): Section 5.4.1: the private seed depends on the issuer (label `org.siros.private_seed/v2`, `info = label || lp(credentialType) || lp(issuer)`); `v1` withdrawn, it was never released. `derived-secrets.json` regenerated. `S.schemaVersion` remains `3`.
+- 3.0 (2026-10-21): `S.schemaVersion` 4 (breaking: a version 3 reader refuses a version 4 container). `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it. Section 6 lists the event types of each version, says that an absent `S.schemaVersion` means 1, that a reader may refuse versions 1 and 2 it cannot migrate, that `set_extension` stamped 3 is accepted, and that `S.keypairs[]` entries are preserved like credential entries. Section 6.1.3: a client without an event log still appends `set_extension` events. Vectors use real events instead of placeholders.

@@ -7,7 +7,8 @@
 # that derived-secrets.json (Section 5.4.1) is reproduced from the roots with openssl,
 # that the delivered-secret commitment vector and the wire-shape / malformed /
 # refusal vectors (Section 5A) hold: each case's response is evaluated against the
-# Section 5A rules and must give the vector's expected outcome and stored metadata.
+# Section 5A rules and must give the vector's expected outcome and stored metadata,
+# and that the version 3 to 4 migration vectors change only S.schemaVersion.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../test-vectors"
 fail=0; n=0
@@ -90,6 +91,14 @@ while IFS= read -r line; do
             echo "FAIL $id: expected state has null/empty/ill-formed metadata"; fail=1
         fi
         echo "ok   $id"
+    fi
+    if [[ "$id" == schema-version-migrate-v3-001 || "$id" == schema-version-v3-legacy-members-001 ]]; then
+        n=$((n+1))
+        if jq -e '.inputs.plaintextState.S.schemaVersion==3 and (.inputs.plaintextState|.S.schemaVersion=4)==.expected.roundTripState' <<<"$line" >/dev/null; then
+            echo "ok   $id"
+        else
+            echo "FAIL $id: migration changes more than S.schemaVersion"; fail=1
+        fi
     fi
     if [[ "$id" == "delivered-secret-commitment-001" ]]; then
         n=$((n+1))
