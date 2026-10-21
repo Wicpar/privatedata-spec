@@ -423,17 +423,19 @@ Normative requirements:
 
 - `S.schemaVersion` MUST be `4` for newly written state, and new events MUST carry `schemaVersion: 4`.
 - Migrating version 3 state to version 4 only sets `schemaVersion` to `4`.
-- A reader MUST read versions 1 to 3 as `wallet-frontend` defines them, and version 4 as this document defines it.
-- A reader MUST refuse to rewrite a container that has a `schemaVersion` it does not implement, in `S` or in any event, or an event type that its versions do not define. It MUST report this as an unsupported version, not as a failed merge.
-- Containers written before Spec 3.0 can already carry `S.extensions` or `metadata` under version 3. A version 4 reader reads them as version 4.
+- A reader MUST read version 3 as `wallet-frontend` defines it, and version 4 as this document defines it. It SHOULD read versions 1 and 2 as `wallet-frontend` defines them. An absent `S.schemaVersion` means version 1.
+- A reader MUST refuse to rewrite a container that has a `schemaVersion` it does not implement, in `S` or in any event, an event without `schemaVersion`, or an event type that its versions do not define. It MUST report this as an unsupported version, not as a failed merge. A reader that cannot migrate version 1 or 2 (for example their key storage) treats them as versions it does not implement.
+- The event types of versions 1 to 3 are `new_credential`, `delete_credential`, `new_keypair`, `delete_keypair`, `new_presentation`, `delete_presentation`, `alter_settings`, `save_credential_issuance_session` and `delete_credential_issuance_session`. Version 4 has these nine and `set_extension`. No other event type is defined.
+- Containers written before Spec 3.0 can already carry `S.extensions` or `metadata`, and `set_extension` events, under version 3. A version 4 reader reads them as version 4, and accepts a `set_extension` event that carries `schemaVersion: 3`. A writer never emits one.
 - `events` and `lastEventHash` MUST be preserved as authored unless explicitly folded/merged by event logic.
 - `S.keypairs[].keypair.privateKey` MUST contain JWK private key material for ES256 signing keys.
 - `S.credentials[]` entries MUST have the members defined in Section 6.0.
 - `S.settings.openidRefreshTokenMaxAgeInSeconds` MUST be preserved.
 - `presentations` and `credentialIssuanceSessions` MUST be preserved.
 - A version 4 reader that rewrites the container MUST preserve, with an identical value,
-  every member of an `S.credentials[]` entry that it does not understand, and
-  every member of `S` that it does not understand, and likewise every member of
+  every member of an `S.credentials[]` or `S.keypairs[]` entry that it does
+  not understand, every `S.keypairs[]` entry that it cannot parse, every
+  member of `S` that it does not understand, and likewise every member of
   a `metadata` entry (below). Preservation applies to the JSON value, not only
   to the wallet metadata fields named above. An implementation that cannot
   preserve such a member MUST refuse to rewrite the container rather than drop
@@ -640,6 +642,11 @@ Extension state MUST be written as events, of type `set_extension`:
   REQUIRED.
 - Tombstones MUST survive event-history folding for at least the maximum
   permitted time between folds (§6.1.4).
+- A client that keeps no event log of its own MUST still append a
+  `set_extension` event to `events`, chained by `parentHash` as
+  `wallet-frontend` chains events, whenever it changes `S.extensions`. A
+  change written only to `S.extensions` is lost when divergent histories are
+  merged.
 
 *Non-normative illustration — reduction, total over unknown namespaces:*
 
@@ -787,4 +794,4 @@ All three documents are non-normative.
 - 2.5 (2026-10-19): Section 5A gains 5A.0 (which party enforces which rule when the OpenID4VCI client, the metadata merger and the secret store are different processes), the statement that seed delivery over a Deferred Credential Response is not supported, and 5A.5 (the limits are those of this version and MUST NOT be hard-coded in a way that prevents extension). Minor bump, as for 2.2 to 2.4, because it adds normative text without changing any wire shape or the container; `S.schemaVersion` remains `3`.
 - 2.6 (2026-10-20): Section 6.0 defines the `S.credentials[]` entry exactly as `wallet-frontend` stores it (`credentialId`, `instanceId` and `batchId` are numbers, `data` is the stored credential; no `id` member). The previous example and vectors used a string `id` and string `instanceId`/`batchId` and no `data`, which no implementation produced. Vectors single-credential-v3-001, multi-passkey-v3-001, the metadata vectors and the fixtures use the corrected form. Wire and container unchanged; `S.schemaVersion` remains `3`.
 - 2.7 (2026-10-20): Section 5.4.1: the private seed depends on the issuer (label `org.siros.private_seed/v2`, `info = label || lp(credentialType) || lp(issuer)`); `v1` withdrawn, it was never released. `derived-secrets.json` regenerated. `S.schemaVersion` remains `3`.
-- 3.0 (2026-10-21): `S.schemaVersion` 4 (breaking: a version 3 reader refuses a version 4 container). `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it.
+- 3.0 (2026-10-21): `S.schemaVersion` 4 (breaking: a version 3 reader refuses a version 4 container). `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it. Section 6 lists the event types of each version, says that an absent `S.schemaVersion` means 1, that a reader may refuse versions 1 and 2 it cannot migrate, that `set_extension` stamped 3 is accepted, and that `S.keypairs[]` entries are preserved like credential entries. Section 6.1.3: a client without an event log still appends `set_extension` events. Vectors use real events instead of placeholders.

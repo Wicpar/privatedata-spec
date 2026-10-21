@@ -33,16 +33,14 @@
       "lastEventHash": "sha256:multi-passkey-event-hash",
       "events": [
         {
-          "type": "credential-1-added",
-          "credentialId": "first-credential-id-for-testing"
-        },
-        {
-          "type": "credential-2-added",
-          "credentialId": "second-credential-id-for-testing"
-        },
-        {
-          "type": "credential-3-added",
-          "credentialId": "third-credential-id-for-testing"
+          "type": "alter_settings",
+          "schemaVersion": 3,
+          "eventId": 1,
+          "parentHash": "sha256:multi-passkey-event-hash",
+          "timestampSeconds": 1750000000,
+          "settings": {
+            "openidRefreshTokenMaxAgeInSeconds": "0"
+          }
         }
       ],
       "S": {
