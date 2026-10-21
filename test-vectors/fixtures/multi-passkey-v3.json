@@ -36,8 +36,8 @@
           "type": "alter_settings",
           "schemaVersion": 3,
           "eventId": 1,
-          "parentHash": "",
-          "timestampSeconds": 1760608800,
+          "parentHash": "sha256:multi-passkey-event-hash",
+          "timestampSeconds": 1750000000,
           "settings": {
             "openidRefreshTokenMaxAgeInSeconds": "0"
           }

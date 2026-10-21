@@ -40,9 +40,9 @@ ADV_SHAPE='(.issuerCredentialMetadata["org.siros.secret_seed"]) as $m
 # nine, WalletStateSchemaVersion1.ts, plus set_extension) and the versions it knows.
 EVENT_TYPES='["new_credential","delete_credential","new_keypair","delete_keypair","new_presentation","delete_presentation","alter_settings","save_credential_issuance_session","delete_credential_issuance_session","set_extension"]'
 # event_ok: true when the event has an integer schemaVersion 1..4 and a known type
-# (set_extension only at version 4).
+# (a reader accepts set_extension at schemaVersion 3 or 4, never 1 or 2; a writer emits 4).
 EVENT_OK='def event_ok: (.schemaVersion|type=="number" and .==floor and .>=1 and .<=4)
-  and (.type as $t | '"$EVENT_TYPES"' | index($t) != null) and (.type!="set_extension" or .schemaVersion==4);'
+  and (.type as $t | '"$EVENT_TYPES"' | index($t) != null) and (.type!="set_extension" or .schemaVersion>=3);'
 
 # dupfree: folds .events over .S the way wallet-frontend's reducers do and is true when no
 # new_credential / new_keypair / new_presentation event creates an id that already exists.
@@ -122,7 +122,7 @@ while IFS= read -r line; do
     esac
     if [[ $refusal == 0 ]]; then
         jq -e "$EVENT_OK [.inputs.plaintextState.events?, .inputs.events?, .inputs.historyA?, .inputs.historyB?, .expected.roundTripState.events?]
-            | map(select(. != null)) | add // [] | all(.[]; event_ok)" <<<"$line" >/dev/null || { echo "FAIL $id: an event is unversioned, of an unknown type, or a set_extension below schemaVersion 4"; fail=1; }
+            | map(select(. != null)) | add // [] | all(.[]; event_ok)" <<<"$line" >/dev/null || { echo "FAIL $id: an event is unversioned, of an unknown type, or a set_extension below schemaVersion 3"; fail=1; }
         jq -e '.inputs.plaintextState.S.schemaVersion // 4 | IN(1,2,3,4)' <<<"$line" >/dev/null || { echo "FAIL $id: S.schemaVersion not implemented"; fail=1; }
     fi
     # Folding the events over S with wallet-frontend's reducers (WalletStateSchemaVersion1.ts:
