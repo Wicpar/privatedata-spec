@@ -424,10 +424,13 @@ Normative requirements:
 - `S.schemaVersion` MUST be `4` for newly written state, and new events MUST carry `schemaVersion: 4`.
 - Migrating version 3 state to version 4 only sets `schemaVersion` to `4`.
 - A reader MUST read versions 1 to 3 as `wallet-frontend` defines them, and version 4 as this document defines it.
+- Every event MUST carry an integer `schemaVersion`. A reader that rewrites a container MUST refuse an event without one.
 - A reader MUST refuse to rewrite a container that has a `schemaVersion` it does not implement, in `S` or in any event, or an event type that its versions do not define. It MUST report this as an unsupported version, not as a failed merge.
+- The event types that a version 4 reader implements are exactly these ten, and no others: the nine of `wallet-frontend` (`src/services/WalletStateSchemaVersion1.ts`, `WalletSessionEvent`; versions 2 and 3 add no event type) `new_credential`, `delete_credential`, `new_keypair`, `delete_keypair`, `new_presentation`, `delete_presentation`, `alter_settings`, `save_credential_issuance_session` and `delete_credential_issuance_session`, and `set_extension` (Section 6.1.3), which MUST carry `schemaVersion` 4. Events of the other nine types keep the `schemaVersion` they were authored with (1 to 4).
 - Containers written before Spec 3.0 can already carry `S.extensions` or `metadata` under version 3. A version 4 reader reads them as version 4.
 - `events` and `lastEventHash` MUST be preserved as authored unless explicitly folded/merged by event logic.
 - `S.keypairs[].keypair.privateKey` MUST contain JWK private key material for ES256 signing keys.
+- A `S.keypairs[]` entry that a reader cannot parse, or any member of one that it does not know, MUST be preserved verbatim on rewrite, like an unknown credential member.
 - `S.credentials[]` entries MUST have the members defined in Section 6.0.
 - `S.settings.openidRefreshTokenMaxAgeInSeconds` MUST be preserved.
 - `presentations` and `credentialIssuanceSessions` MUST be preserved.
@@ -441,8 +444,10 @@ Normative requirements:
 
 Test vectors: `schema-version-unknown-state-001`,
 `schema-version-unknown-event-version-001`,
-`schema-version-unknown-event-type-001`, `schema-version-migrate-v3-001`,
-`schema-version-v3-legacy-members-001` and `schema-version-v3-writer-001` in
+`schema-version-unknown-event-type-001`, `schema-version-event-missing-version-001`,
+`schema-version-event-types-001`, `keypair-unknown-entry-001`,
+`schema-version-migrate-v3-001`, `schema-version-v3-legacy-members-001` and
+`schema-version-v3-writer-001` in
 `test-vectors/vectors.jsonl`.
 
 Note (non-normative, deployment). `wallet-frontend`'s `credentialReducer`
@@ -456,10 +461,12 @@ conformance gap in `wallet-frontend`, not version 3 behaviour:
   user cannot open the wallet there.
 - A `wallet-frontend` that implements version 4 has to preserve `metadata` and
   `S.extensions` to conform.
-- Rollout order: an SDK that implements this version writes version 4 on every
-  write, not only when it stores a delivered seed (Section 5A.2) or an
-  extension. Version 4 support in `wallet-frontend` therefore has to ship
-  before, or together with, version 4 writes in the SDKs.
+- Rollout order: none is required. An SDK that implements this version writes
+  version 4 on every write, not only when it stores a delivered seed
+  (Section 5A.2) or an extension, and it MAY do so before `wallet-frontend`
+  implements version 4. A `wallet-frontend` that implements only version 3 then
+  refuses the version 4 container loudly and loses nothing; the users of that
+  account cannot open the wallet in that frontend until it implements version 4.
 
 ### 6.0 `S.credentials[]` entry
 
@@ -787,4 +794,4 @@ All three documents are non-normative.
 - 2.5 (2026-10-19): Section 5A gains 5A.0 (which party enforces which rule when the OpenID4VCI client, the metadata merger and the secret store are different processes), the statement that seed delivery over a Deferred Credential Response is not supported, and 5A.5 (the limits are those of this version and MUST NOT be hard-coded in a way that prevents extension). Minor bump, as for 2.2 to 2.4, because it adds normative text without changing any wire shape or the container; `S.schemaVersion` remains `3`.
 - 2.6 (2026-10-20): Section 6.0 defines the `S.credentials[]` entry exactly as `wallet-frontend` stores it (`credentialId`, `instanceId` and `batchId` are numbers, `data` is the stored credential; no `id` member). The previous example and vectors used a string `id` and string `instanceId`/`batchId` and no `data`, which no implementation produced. Vectors single-credential-v3-001, multi-passkey-v3-001, the metadata vectors and the fixtures use the corrected form. Wire and container unchanged; `S.schemaVersion` remains `3`.
 - 2.7 (2026-10-20): Section 5.4.1: the private seed depends on the issuer (label `org.siros.private_seed/v2`, `info = label || lp(credentialType) || lp(issuer)`); `v1` withdrawn, it was never released. `derived-secrets.json` regenerated. `S.schemaVersion` remains `3`.
-- 3.0 (2026-10-21): `S.schemaVersion` 4 (breaking: a version 3 reader refuses a version 4 container). `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it.
+- 3.0 (2026-10-21): `S.schemaVersion` 4 (breaking: a version 3 reader refuses a version 4 container). `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it. Every event MUST carry an integer `schemaVersion`; the implemented event types are the nine of `wallet-frontend` plus `set_extension`; unparseable or unknown `S.keypairs[]` entries are preserved verbatim. The vectors use real events of these types. SDKs MAY write version 4 before `wallet-frontend` implements it.

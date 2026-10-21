@@ -368,7 +368,7 @@ verifies nothing is worse than one that fails.
 
 ## 6. Sequencing
 
-> **Alignment note (Spec 3.0).** `set_extension`, `S.extensions` and `metadata` are schema version 4 (SPEC.md §6). A client that predates them sees version 4 and refuses to rewrite, instead of crashing or dropping data, so the version bump replaces the gate in step 2 and the interim behaviour in §6.1. SDKs write version 4.
+> **Alignment note (Spec 3.0).** `set_extension`, `S.extensions` and `metadata` are schema version 4 (SPEC.md §6). A client that predates them sees version 4 and refuses to rewrite, instead of crashing or dropping data, so the version bump replaces the gate in step 2 and the interim behaviour in §6.1. SDKs write version 4, and they MAY do so before `wallet-frontend` implements it: a version-3-only `wallet-frontend` then refuses the container loudly and loses nothing, and the users of that account cannot open the wallet there until it implements version 4 (SPEC.md §6, deployment note). The "Gate" lines below, and the interim behaviour of §6.1, are therefore historical: no gate requires `wallet-frontend` to ship first.
 
 Ordered and gated.
 
