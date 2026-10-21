@@ -443,8 +443,10 @@ Normative requirements:
 
 Test vectors: `schema-version-unknown-state-001`,
 `schema-version-unknown-event-version-001`,
-`schema-version-unknown-event-type-001`, `schema-version-migrate-v3-001`,
-`schema-version-v3-legacy-members-001` and `schema-version-v3-writer-001` in
+`schema-version-unknown-event-type-001`, `schema-version-event-missing-version-001`,
+`schema-version-event-types-001`, `keypair-unknown-entry-001`,
+`schema-version-migrate-v3-001`, `schema-version-v3-legacy-members-001` and
+`schema-version-v3-writer-001` in
 `test-vectors/vectors.jsonl`.
 
 Note (non-normative, deployment). `wallet-frontend`'s `credentialReducer`
@@ -458,10 +460,12 @@ conformance gap in `wallet-frontend`, not version 3 behaviour:
   user cannot open the wallet there.
 - A `wallet-frontend` that implements version 4 has to preserve `metadata` and
   `S.extensions` to conform.
-- Rollout order: an SDK that implements this version writes version 4 on every
-  write, not only when it stores a delivered seed (Section 5A.2) or an
-  extension. Version 4 support in `wallet-frontend` therefore has to ship
-  before, or together with, version 4 writes in the SDKs.
+- Rollout order: none is required. An SDK that implements this version writes
+  version 4 on every write, not only when it stores a delivered seed
+  (Section 5A.2) or an extension, and it MAY do so before `wallet-frontend`
+  implements version 4. A `wallet-frontend` that implements only version 3 then
+  refuses the version 4 container loudly and loses nothing; the users of that
+  account cannot open the wallet in that frontend until it implements version 4.
 
 ### 6.0 `S.credentials[]` entry
 
@@ -794,4 +798,4 @@ All three documents are non-normative.
 - 2.5 (2026-10-19): Section 5A gains 5A.0 (which party enforces which rule when the OpenID4VCI client, the metadata merger and the secret store are different processes), the statement that seed delivery over a Deferred Credential Response is not supported, and 5A.5 (the limits are those of this version and MUST NOT be hard-coded in a way that prevents extension). Minor bump, as for 2.2 to 2.4, because it adds normative text without changing any wire shape or the container; `S.schemaVersion` remains `3`.
 - 2.6 (2026-10-20): Section 6.0 defines the `S.credentials[]` entry exactly as `wallet-frontend` stores it (`credentialId`, `instanceId` and `batchId` are numbers, `data` is the stored credential; no `id` member). The previous example and vectors used a string `id` and string `instanceId`/`batchId` and no `data`, which no implementation produced. Vectors single-credential-v3-001, multi-passkey-v3-001, the metadata vectors and the fixtures use the corrected form. Wire and container unchanged; `S.schemaVersion` remains `3`.
 - 2.7 (2026-10-20): Section 5.4.1: the private seed depends on the issuer (label `org.siros.private_seed/v2`, `info = label || lp(credentialType) || lp(issuer)`); `v1` withdrawn, it was never released. `derived-secrets.json` regenerated. `S.schemaVersion` remains `3`.
-- 3.0 (2026-10-21): `S.schemaVersion` 4 (breaking: a version 3 reader refuses a version 4 container). `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it. Section 6 lists the event types of each version, says that an absent `S.schemaVersion` means 1, that a reader may refuse versions 1 and 2 it cannot migrate, that `set_extension` stamped 3 is accepted, and that `S.keypairs[]` entries are preserved like credential entries. Section 6.1.3: a client without an event log still appends `set_extension` events. Vectors use real events instead of placeholders.
+- 3.0 (2026-10-21): `S.schemaVersion` 4 (breaking: a version 3 reader refuses a version 4 container). `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it. Section 6 lists the event types of each version, says that an absent `S.schemaVersion` means 1, that a reader may refuse versions 1 and 2 it cannot migrate, that `set_extension` stamped 3 is accepted, and that `S.keypairs[]` entries are preserved like credential entries. Section 6.1.3: a client without an event log still appends `set_extension` events. Vectors use real events instead of placeholders. SDKs MAY write version 4 before `wallet-frontend` implements it.

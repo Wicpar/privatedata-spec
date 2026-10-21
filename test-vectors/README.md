@@ -43,7 +43,7 @@ Each line in `vectors.jsonl` is a complete JSON object describing one test case:
   "validations": {
     "encryptMatch": "byte-for-byte match of serialized container JSON",
     "decryptMatch": "parsed state must match plaintextState",
-    "roundTrip": "decrypt -> re-encrypt -> compare bytes",
+    "roundTrip": "decrypt -> re-encrypt -> compare bytes (or compare with expected.roundTripState where given, see Round-trip below)",
     "metadata": ["credentials[].format", "credentials[].kid", "keypairs[].did"],
     "statePreservation": ["events", "lastEventHash", "presentations", "credentialIssuanceSessions"]
   }
@@ -107,7 +107,7 @@ Every implementation MUST pass these validations for every vector:
 
 1. **Encryption Determinism**: Encrypting the same plaintext + PRF inputs MUST produce byte-for-byte identical output
 2. **Decryption Fidelity**: Decrypting the expected container MUST parse to the plaintext state
-3. **Round-trip**: Decrypt → parse → re-encrypt MUST produce identical container bytes
+3. **Round-trip**: Decrypt → parse → re-encrypt MUST produce identical container bytes, except where a vector states `expected.roundTripState`: then the rewritten state MUST equal that state. Two changes are permitted, and only where `expected.roundTripState` states them: schema migration (version 3 to 4 changes `S.schemaVersion` and nothing else: `single-credential-v3-001`, `multi-passkey-v3-001`, `schema-version-migrate-v3-001`) and the removal of an empty `metadata` array, which a writer MUST NOT emit (`credential-metadata-empty-array-001`)
 4. **Metadata Preservation**: All credential/keypair fields in plaintext MUST appear in encrypted state, as MUST every unknown member of a credential entry or of `S`, and credential `metadata` (SPEC.md Section 6)
 5. **Event Preservation**: `events[]` and `lastEventHash` MUST be identical after round-trip
 6. **Field Completeness**: `presentations`, `credentialIssuanceSessions` MUST be preserved (not empty if present)
@@ -122,7 +122,7 @@ The delivered-secret vectors (SPEC.md Section 5A) are cases of the form `{respon
 
 ### Schema-version vectors
 
-The `schema-version-*` vectors cover the version rules of SPEC.md Section 6. A reader refuses to rewrite a container with an unknown `S.schemaVersion` (`schema-version-unknown-state-001`), an unknown event `schemaVersion` (`schema-version-unknown-event-version-001`) or an unknown event type (`schema-version-unknown-event-type-001`). Migrating version 3 to version 4 only sets `S.schemaVersion` (`schema-version-migrate-v3-001`), also when a version 3 container written before Spec 3.0 already carries `metadata` and `S.extensions` (`schema-version-v3-legacy-members-001`). A writer that stores `metadata` or an extension never leaves the container at version 3 (`schema-version-v3-writer-001`). `check-vectors.sh` checks that the two migration vectors change nothing but `S.schemaVersion`.
+The `schema-version-*` vectors cover the version rules of SPEC.md Section 6. A reader refuses to rewrite a container with an unknown `S.schemaVersion` (`schema-version-unknown-state-001`), an unknown event `schemaVersion` (`schema-version-unknown-event-version-001`) or an unknown event type (`schema-version-unknown-event-type-001`). Migrating version 3 to version 4 only sets `S.schemaVersion` (`schema-version-migrate-v3-001`), also when a version 3 container written before Spec 3.0 already carries `metadata` and `S.extensions` (`schema-version-v3-legacy-members-001`). A writer that stores `metadata` or an extension never leaves the container at version 3 (`schema-version-v3-writer-001`). An event without an integer `schemaVersion` is refused (`schema-version-event-missing-version-001`). `schema-version-event-types-001` carries one real event of each of the ten implemented event types. `keypair-unknown-entry-001` covers unparseable or unknown `S.keypairs[]` entries, which are preserved verbatim. `check-vectors.sh` checks that the migration vectors (including the two version 3 vectors `single-credential-v3-001` and `multi-passkey-v3-001`, whose expected output is version 4) change nothing but `S.schemaVersion`, that every accepted vector carries only real, versioned events of the ten types, and that each refusal vector is refusable under those rules.
 
 ## Vector Maintenance
 
