@@ -125,6 +125,25 @@ while IFS= read -r line; do
             | map(select(. != null)) | add // [] | all(.[]; event_ok)" <<<"$line" >/dev/null || { echo "FAIL $id: an event is unversioned, of an unknown type, or a set_extension below schemaVersion 3"; fail=1; }
         jq -e '.inputs.plaintextState.S.schemaVersion // 4 | IN(1,2,3,4)' <<<"$line" >/dev/null || { echo "FAIL $id: S.schemaVersion not implemented"; fail=1; }
     fi
+    # Event chain (wallet-frontend validateEventHistoryContinuity): the first event's parentHash is
+    # the container's lastEventHash when that is non-empty, and every later parentHash is the
+    # SHA-256 (hex) of the previous event, sorted keys, compact JSON; new_keypair is hashed with
+    # keypair.wrappedPrivateKey set to null.
+    if [[ $refusal == 0 ]]; then
+        for path in .inputs.plaintextState .expected.roundTripState; do
+            st=$(jq -c "$path // empty" <<<"$line")
+            [[ -n "$st" ]] || continue
+            ne=$(jq '.events|length' <<<"$st")
+            if (( ne > 0 )); then
+                lh=$(jq -r .lastEventHash <<<"$st")
+                if [[ -n "$lh" && "$(jq -r '.events[0].parentHash' <<<"$st")" != "$lh" ]]; then echo "FAIL $id: $path events[0].parentHash != lastEventHash"; fail=1; fi
+                for ((k=1;k<ne;k++)); do
+                    want=$(jq -cS '.events['$((k-1))'] | if .type=="new_keypair" and (.keypair|type=="object") then .keypair.wrappedPrivateKey=null else . end' <<<"$st" | tr -d '\n' | sha256sum | cut -d' ' -f1)
+                    [[ "$(jq -r ".events[$k].parentHash" <<<"$st")" == "$want" ]] || { echo "FAIL $id: $path events[$k].parentHash is not the hash of events[$((k-1))]"; fail=1; }
+                done
+            fi
+        done
+    fi
     # Folding the events over S with wallet-frontend's reducers (WalletStateSchemaVersion1.ts:
     # new_* append, delete_* filter) must not create an identifier that already exists.
     for path in .inputs.plaintextState .expected.roundTripState; do
