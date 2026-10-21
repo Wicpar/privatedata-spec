@@ -36,6 +36,14 @@ ADV_SHAPE='(.issuerCredentialMetadata["org.siros.secret_seed"]) as $m
     and all($m.namespaces[]; type=="string" and length>0 and utf8bytelength<=64 and .!="namespaces"
       and (test("^[0-9a-f]{32}$")|not))'
 
+# SPEC.md Section 6: the event types a version 4 reader implements (wallet-frontend's
+# nine, WalletStateSchemaVersion1.ts, plus set_extension) and the versions it knows.
+EVENT_TYPES='["new_credential","delete_credential","new_keypair","delete_keypair","new_presentation","delete_presentation","alter_settings","save_credential_issuance_session","delete_credential_issuance_session","set_extension"]'
+# event_ok: true when the event has an integer schemaVersion 1..4 and a known type
+# (set_extension only at version 4).
+EVENT_OK='def event_ok: (.schemaVersion|type=="number" and .==floor and .>=1 and .<=4)
+  and (.type as $t | '"$EVENT_TYPES"' | index($t) != null) and (.type!="set_extension" or .schemaVersion==4);'
+
 # evaluate_adv <case-json>: prints valid-advertisement | no-advertisement | malformed.
 evaluate_adv() {
     local c=$1
@@ -92,7 +100,27 @@ while IFS= read -r line; do
         fi
         echo "ok   $id"
     fi
-    if [[ "$id" == schema-version-migrate-v3-001 || "$id" == schema-version-v3-legacy-members-001 ]]; then
+    # Section 6: a state that is accepted (it has an expected round trip) carries only real,
+    # versioned events of the implemented types; unversioned or unknown events are refused.
+    if jq -e '.expected.roundTripState' <<<"$line" >/dev/null 2>&1; then
+        for path in .inputs.plaintextState .expected.roundTripState; do
+            jq -e "$EVENT_OK ${path}|all(.events[]; event_ok) and (.S.schemaVersion|IN(1,2,3,4))" <<<"$line" >/dev/null || { echo "FAIL $id: $path has an unversioned, unknown or placeholder event"; fail=1; }
+        done
+    fi
+    case "$id" in
+        schema-version-unknown-state-001|schema-version-unknown-event-version-001|schema-version-unknown-event-type-001|schema-version-event-missing-version-001)
+            n=$((n+1))
+            if jq -e "$EVENT_OK .inputs.plaintextState | ((.S.schemaVersion|IN(1,2,3,4))|not) or any(.events[]; event_ok|not)" <<<"$line" >/dev/null; then echo "ok   $id (refused input)"; else echo "FAIL $id: input is not refusable"; fail=1; fi
+            case "$id" in
+                *unknown-event-version*) jq -e '.inputs.plaintextState.events|any(.[]; (.schemaVersion|type=="number" and .>4))' <<<"$line" >/dev/null || { echo "FAIL $id: no event with a too-new schemaVersion"; fail=1; } ;;
+                *missing-version*) jq -e '.inputs.plaintextState.events|any(.[]; has("schemaVersion")|not)' <<<"$line" >/dev/null || { echo "FAIL $id: every event has a schemaVersion"; fail=1; } ;;
+            esac ;;
+        schema-version-event-types-001)
+            jq -e "$EVENT_TYPES as \$t | ([.inputs.plaintextState.events[].type]|unique) == (\$t|sort)" <<<"$line" >/dev/null || { echo "FAIL $id: not every event type is covered"; fail=1; } ;;
+        keypair-unknown-entry-001)
+            jq -e '.inputs.plaintextState==.expected.roundTripState and (.inputs.plaintextState.S.keypairs|length)>=3' <<<"$line" >/dev/null || { echo "FAIL $id: keypair entries not preserved verbatim"; fail=1; } ;;
+    esac
+    if [[ "$id" == schema-version-migrate-v3-001 || "$id" == schema-version-v3-legacy-members-001 || "$id" == single-credential-v3-001 || "$id" == multi-passkey-v3-001 ]]; then
         n=$((n+1))
         if jq -e '.inputs.plaintextState.S.schemaVersion==3 and (.inputs.plaintextState|.S.schemaVersion=4)==.expected.roundTripState' <<<"$line" >/dev/null; then
             echo "ok   $id"
