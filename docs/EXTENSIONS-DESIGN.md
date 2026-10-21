@@ -368,6 +368,8 @@ verifies nothing is worse than one that fails.
 
 ## 6. Sequencing
 
+> **Alignment note (Spec 3.0).** `set_extension`, `S.extensions` and `metadata` are schema version 4 (SPEC.md §6). A client that predates them sees version 4 and refuses to rewrite, instead of crashing or dropping data, so the version bump replaces the gate in step 2 and the interim behaviour in §6.1. SDKs write version 4.
+
 Ordered and gated.
 
 1. **Tolerance and vectors.** `wallet-frontend` stops crashing on unknown

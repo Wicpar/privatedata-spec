@@ -1,7 +1,7 @@
 {
   "id": "metadata-preservation-001",
   "description": "Credential and keypair metadata must be preserved exactly, as must every member this reader does not understand",
-  "version": "3",
+  "version": "4",
   "fields": {
     "credentials": [
       "format",
