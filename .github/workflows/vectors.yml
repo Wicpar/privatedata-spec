@@ -1,0 +1,23 @@
+name: Test vectors
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check-vectors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Every vector and fixture parses
+        run: |
+          jq -e . test-vectors/vectors.jsonl >/dev/null
+          for f in test-vectors/*.json test-vectors/fixtures/*.json test-vectors/edge-cases/*.json; do jq -e . "$f" >/dev/null; done
+      - name: Check vectors (digests, shapes, refusal rules)
+        run: bash conformance/check-vectors.sh
