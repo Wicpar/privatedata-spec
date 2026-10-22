@@ -112,13 +112,13 @@ Every implementation MUST pass these validations for every vector:
 5. **Event Preservation**: `events[]` and `lastEventHash` MUST be identical after round-trip
 6. **Field Completeness**: `presentations`, `credentialIssuanceSessions` MUST be preserved (not empty if present)
 
-### Metadata and delivered-secret vectors
+### Metadata and Credential Auxiliary Data vectors
 
 All vectors except `single-credential-v3-001` and `multi-passkey-v3-001` are version 4.
 
-Vectors with `expected.roundTripState` state the state a conforming reader writes back (compared as JSON, array order significant); `expected.plaintextStateSha256` / `roundTripStateSha256` are SHA-256 over the compact JSON encoding of the respective state with members in the order written. `conformance/check-vectors.sh` verifies these offline (needs only `jq`, `xxd`, `sha256sum`).
+Vectors with `expected.roundTripState` state the state a conforming reader writes back (compared as JSON, array order significant); `expected.plaintextStateSha256` / `roundTripStateSha256` are SHA-256 over the compact JSON encoding of the respective state with members in the order written. `conformance/check-vectors.sh` verifies these offline (needs only `jq`, `xxd`, `base64`, `sha256sum`).
 
-The delivered-secret vectors (SPEC.md Section 5A) are cases of the form `{response, jweEncrypted, commitmentNamespace, sscHex, expected}`, where `response` is an OpenID4VCI Credential Response using the response-level `credential_metadata` object. `delivered-secret-wire-001` (accept: single and multiple namespaces, batch, unknown member preserved), `delivered-secret-malformed-001` (refuse: hex case, length, over-cap, wrong types) and `delivered-secret-refusal-001` (refuse: plain response, missing `notification_id`, commitment mismatch, absent namespace, `credential_metadata` an array, deferred response carrying a seed). `delivered-secret-strip-001` (seed stripped before the merge into display metadata, seed absent from the merged result) and `delivered-secret-advertise-001` (issuer metadata lists namespace names only; hex values in issuer metadata are malformed) cover Sections 5A.3 and 5A.4. `check-vectors.sh` evaluates every case against the Section 5A rules.
+The Credential Auxiliary Data vectors (SPEC.md Section 5A) are cases of the form `{toWallet, jweEncrypted, responseType, response, claimsHex, expected}`. `response` is an OpenID4VCI Credential Response or Deferred Credential Response with `credential_auxiliary_data` in its `credentials` objects. `claimsHex` gives, per credential, the issuer-signed claim value at each `claim_path`. `aux-data-hash-commitment-001` checks a `hash_commitment` opening against its claim with the extension's example values. `aux-data-accept-001` covers a single credential, a batch, a deferred response and an unrecognized type stored without checks. `aux-data-refusal-001` covers an unencrypted opening (immediate and deferred), an opening mismatch, a missing `to_wallet` entry, an absent claim, a non-base64url opening, an unknown `alg`, an empty array and an entry without `type`. `check-vectors.sh` evaluates every case against the Section 5A rules.
 
 ### Schema-version vectors
 
