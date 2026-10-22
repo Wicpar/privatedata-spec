@@ -112,11 +112,13 @@ Every implementation MUST pass these validations for every vector:
 5. **Event Preservation**: `events[]` and `lastEventHash` MUST be identical after round-trip
 6. **Field Completeness**: `presentations`, `credentialIssuanceSessions` MUST be preserved (not empty if present)
 
-### Metadata vectors
+### Metadata and delivered-secret vectors
 
 All vectors except `single-credential-v3-001` and `multi-passkey-v3-001` are version 4.
 
-Vectors with `expected.roundTripState` state the state a conforming reader writes back (compared as JSON, array order significant); `expected.plaintextStateSha256` / `roundTripStateSha256` are SHA-256 over the compact JSON encoding of the respective state with members in the order written. `conformance/check-vectors.sh` verifies these offline (needs only `jq`, `xxd`, `sha256sum`).
+Vectors with `expected.roundTripState` state the state a conforming reader writes back (compared as JSON, array order significant); `expected.plaintextStateSha256` / `roundTripStateSha256` are SHA-256 over the compact JSON encoding of the respective state with members in the order written. `conformance/check-vectors.sh` verifies these offline (needs only `jq`, `xxd`, `base64`, `sha256sum`).
+
+The delivered-secret vectors (SPEC.md Section 5A) are cases of the form `{response, jweEncrypted, commitmentPath, sscHex, expected}`, where `response` is an OpenID4VCI Credential Response with `auxiliary_data` in its response-level `credential_metadata` object. `delivered-secret-wire-001` (accept: single entry, two entries, batch, unknown member preserved) and `delivered-secret-refusal-001` (refuse: plain response, immediate or deferred, missing `notification_id`, commitment mismatch, no entry for the committed claim, `credential_metadata` an array). `delivered-secret-strip-001` (`auxiliary_data` stripped before the merge into display metadata, the seed absent from the merged result) covers Section 5A.3. `check-vectors.sh` evaluates every case against the Section 5A rules.
 
 ### Schema-version vectors
 

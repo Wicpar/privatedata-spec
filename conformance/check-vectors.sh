@@ -1,10 +1,13 @@
 #!/bin/bash
 #
-# Offline self-check of test-vectors/vectors.jsonl: needs only jq and sha256sum,
+# Offline self-check of test-vectors/vectors.jsonl: needs only jq, base64 and sha256sum,
 # no client SDK. Verifies that every vector with expected.plaintextStateSha256 /
 # roundTripStateSha256 hashes consistently (compact JSON, key order as written),
 # that credential `metadata` obeys SPEC.md Section 6 in the expected states, and
 # that derived-secrets.json (Section 5.4.1) is reproduced from the roots with openssl,
+# that the delivered-secret commitment vector and the wire-shape / refusal
+# vectors (Section 5A) hold: each case's response is evaluated against the
+# Section 5A rules and must give the vector's expected outcome and stored metadata,
 # and that the version 3 to 4 migration vectors change only S.schemaVersion.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../test-vectors"
@@ -17,6 +20,19 @@ ENTRY_SHAPE='(has("id")|not) and (.credentialId|type=="number" and .==floor and 
   and (.credentialIssuerIdentifier|type=="string") and (.credentialConfigurationId|type=="string")'
 check_entries() { # check_entries <label> <json-array-of-entries>
     jq -e "length>0 and all(.[]; $ENTRY_SHAPE)" <<<"$2" >/dev/null || { echo "FAIL $1: credential entry violates SPEC Section 6.0"; fail=1; return 1; }
+}
+
+# Section 5A.1 shape of auxiliary_data: a non-empty array of entries, each an object
+# with a non-empty string type (the extension defines the rest).
+AUX_SHAPE='(.credential_metadata.auxiliary_data) as $m
+  | ($m|type=="array") and ($m|length>0) and all($m[]; type=="object" and (.type|type=="string" and length>0))'
+
+# b64u_hex <string>: hex of the base64url (no padding) decoding; fails on any other input.
+b64u_hex() {
+    local s=$1
+    [[ "$s" =~ ^[A-Za-z0-9_-]+$ ]] && (( ${#s} % 4 != 1 )) || return 1
+    s+=$(head -c $(( (4 - ${#s} % 4) % 4 )) /dev/zero | tr '\0' '=')
+    tr '_-' '/+' <<<"$s" | base64 -d 2>/dev/null | xxd -p | tr -d '\n'
 }
 
 # SPEC.md Section 6: the event types a version 4 reader implements (wallet-frontend's
@@ -39,12 +55,42 @@ FOLD_DUPFREE='def dupfree: . as $st | reduce ($st.events // [])[] as $e
    elif $e.type=="delete_presentation" then .p-=[$e.presentationId]
    else . end) | .bad|not;'
 
+# evaluate_strip <case-json>: prints "<stripped>|<merged>" (compact JSON); the seed
+# member is removed from the response object before the member-wise merge.
+evaluate_strip() {
+    jq -c '(.responseCredentialMetadata|del(.auxiliary_data)) as $s
+      | "\($s)|\(.issuerCredentialMetadata + $s)"' -r <<<"$1"
+}
+
+# evaluate_case <case-json>: prints "accept <stored-metadata-json>" or "refuse".
+evaluate_case() {
+    local c=$1 seed ssc calc
+    jq -e '.response|(has("credential_metadata")|not) or (.credential_metadata|type=="object")' <<<"$c" >/dev/null || { echo refuse; return; }
+    local has; has=$(jq -r '.response.credential_metadata|has("auxiliary_data")' <<<"$c" 2>/dev/null || echo false)
+    if [[ "$has" == true ]]; then
+        jq -e ".response|$AUX_SHAPE" <<<"$c" >/dev/null || { echo refuse; return; }
+        if jq -e 'any(.response.credential_metadata.auxiliary_data[]; has("opening"))' <<<"$c" >/dev/null; then
+            jq -e '.jweEncrypted == true' <<<"$c" >/dev/null || { echo refuse; return; }
+            jq -e '.response.notification_id|type=="string" and length>0' <<<"$c" >/dev/null || { echo refuse; return; }
+        fi
+    fi
+    ssc=$(jq -r .sscHex <<<"$c")
+    seed=$(jq -r '.commitmentPath as $p | first(.response.credential_metadata.auxiliary_data[]? | select(.type=="hash_commitment" and .path==$p) | .opening) // empty' <<<"$c")
+    [[ -n "$seed" ]] || { echo refuse; return; }
+    seed=$(b64u_hex "$seed") || { echo refuse; return; }
+    calc=$(printf '%s' "$seed" | xxd -r -p | sha256sum | cut -d' ' -f1)
+    [[ "$calc" == "$ssc" ]] || { echo refuse; return; }
+    echo "accept $(jq -c '[.response.credential_metadata|to_entries[]|{type:.key,value:.value}]' <<<"$c")"
+}
 while IFS= read -r line; do
     id=$(jq -r .id <<<"$line")
     for src in .inputs.plaintextState.S.credentials .expected.roundTripState.S.credentials; do
         ents=$(jq -c "$src // empty" <<<"$line")
         if [[ -n "$ents" && "$ents" != "[]" ]]; then check_entries "$id $src" "$ents" && echo "ok   $id entries ($src)"; fi
     done
+    if [[ "$id" == delivered-secret-commitment-001 ]]; then
+        check_entries "$id credentialAfterAccept" "$(jq -c '[.expected.credentialAfterAccept]' <<<"$line")" && echo "ok   $id entry"
+    fi
     if jq -e '.expected.plaintextStateSha256' <<<"$line" >/dev/null 2>&1; then
         n=$((n+1))
         for pair in "inputs.plaintextState:plaintextStateSha256" "expected.roundTripState:roundTripStateSha256"; do
@@ -119,6 +165,53 @@ while IFS= read -r line; do
         else
             echo "FAIL $id: migration changes more than S.schemaVersion"; fail=1
         fi
+    fi
+    if [[ "$id" == "delivered-secret-commitment-001" ]]; then
+        n=$((n+1))
+        seed=$(jq -r .inputs.secret_seed_hex <<<"$line")
+        calc=$(printf '%s' "$seed" | xxd -r -p | sha256sum | cut -d' ' -f1)
+        m=$(jq -r '.inputs.cases[] | select(.name=="match") | .ssc_hex' <<<"$line")
+        x=$(jq -r '.inputs.cases[] | select(.name=="mismatch") | .ssc_hex' <<<"$line")
+        if [[ "$calc" == "$m" && "$calc" != "$x" ]]; then echo "ok   $id"; else echo "FAIL $id"; fail=1; fi
+    fi
+    if [[ "$id" == delivered-secret-strip-001 ]]; then
+        n=$((n+1)); ok=1
+        ncases=$(jq '.inputs.cases|length' <<<"$line")
+        [[ "$ncases" -gt 0 ]] || { echo "FAIL $id: no cases"; ok=0; }
+        for ((k=0;k<ncases;k++)); do
+            c=$(jq -c ".inputs.cases[$k]" <<<"$line"); nm=$(jq -r .name <<<"$c")
+            got=$(evaluate_strip "$c"); gs=${got%%|*}; gm=${got#*|}
+            [[ "$gs" == "$(jq -c .expected.strippedResponse <<<"$c")" ]] || { echo "FAIL $id[$k] $nm: stripped $gs"; ok=0; }
+            [[ "$gm" == "$(jq -c .expected.mergedDisplayMetadata <<<"$c")" ]] || { echo "FAIL $id[$k] $nm: merged $gm"; ok=0; }
+            # the seed hex must be absent from the stripped and merged display metadata
+            while IFS= read -r hex; do
+                if [[ "$gs$gm" == *"$hex"* ]]; then echo "FAIL $id[$k] $nm: seed leaked into display metadata"; ok=0; fi
+            done < <(jq -r '.responseCredentialMetadata.auxiliary_data//[]|.[]|.opening // empty' <<<"$c")
+            # the stored entry is the member verbatim
+            [[ "$(jq -c '[.responseCredentialMetadata.auxiliary_data|select(.)|{type:"auxiliary_data",value:.}]' <<<"$c")" == "$(jq -c .expected.storedMetadata <<<"$c")" ]] || { echo "FAIL $id[$k] $nm: stored metadata"; ok=0; }
+        done
+        if [[ $ok == 1 ]]; then echo "ok   $id ($ncases cases)"; else fail=1; fi
+    fi
+    if [[ "$id" == delivered-secret-wire-001 || "$id" == delivered-secret-refusal-001 ]]; then
+        n=$((n+1)); ok=1
+        ncases=$(jq '.inputs.cases|length' <<<"$line")
+        [[ "$ncases" -gt 0 ]] || { echo "FAIL $id: no cases"; ok=0; }
+        for ((k=0;k<ncases;k++)); do
+            c=$(jq -c ".inputs.cases[$k]" <<<"$line")
+            want=$(jq -r .expected.outcome <<<"$c")
+            got=$(evaluate_case "$c"); gotout=${got%% *}
+            if [[ "$gotout" != "$want" ]]; then echo "FAIL $id[$k] $(jq -r .name <<<"$c"): got $gotout want $want"; ok=0; continue; fi
+            if [[ "$want" == accept ]]; then
+                stored=${got#accept }; wantst=$(jq -c .expected.storedMetadataPerCredential <<<"$c")
+                [[ "$stored" == "$wantst" ]] || { echo "FAIL $id[$k]: stored $stored != $wantst"; ok=0; }
+            fi
+        done
+        # the vectors must keep covering both outcomes where they claim to
+        case "$id" in
+            *wire*) jq -e '[.inputs.cases[].expected.outcome]|all(.=="accept")' <<<"$line" >/dev/null || { echo "FAIL $id: non-accept case"; ok=0; } ;;
+            *) jq -e '[.inputs.cases[].expected.outcome]|all(.=="refuse")' <<<"$line" >/dev/null || { echo "FAIL $id: non-refuse case"; ok=0; } ;;
+        esac
+        if [[ $ok == 1 ]]; then echo "ok   $id ($ncases cases)"; else fail=1; fi
     fi
 done < vectors.jsonl
 # Fixtures that carry a plaintextState (same entry shape).
