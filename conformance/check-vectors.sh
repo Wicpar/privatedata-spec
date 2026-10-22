@@ -1,13 +1,11 @@
 #!/bin/bash
 #
-# Offline self-check of test-vectors/vectors.jsonl: needs only jq, base64 and sha256sum,
+# Offline self-check of test-vectors/vectors.jsonl: needs only jq and sha256sum,
 # no client SDK. Verifies that every vector with expected.plaintextStateSha256 /
 # roundTripStateSha256 hashes consistently (compact JSON, key order as written),
 # that credential `metadata` obeys SPEC.md Section 6 in the expected states, and
 # that derived-secrets.json (Section 5.4.1) is reproduced from the roots with openssl,
-# that the Credential Auxiliary Data vectors (Section 5A) hold: each case's response is
-# evaluated against the Section 5A rules and must give the vector's expected outcome and
-# stored metadata, and that the version 3 to 4 migration vectors change only S.schemaVersion.
+# and that the version 3 to 4 migration vectors change only S.schemaVersion.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../test-vectors"
 fail=0; n=0
@@ -41,43 +39,6 @@ FOLD_DUPFREE='def dupfree: . as $st | reduce ($st.events // [])[] as $e
    elif $e.type=="delete_presentation" then .p-=[$e.presentationId]
    else . end) | .bad|not;'
 
-# b64u_hex <string>: hex of the base64url (no padding) decoding; fails on any other input.
-b64u_hex() {
-    local s=$1
-    [[ "$s" =~ ^[A-Za-z0-9_-]+$ ]] && (( ${#s} % 4 != 1 )) || return 1
-    s+=$(head -c $(( (4 - ${#s} % 4) % 4 )) /dev/zero | tr '\0' '=')
-    tr '_-' '/+' <<<"$s" | base64 -d 2>/dev/null | xxd -p | tr -d '\n'
-}
-
-# evaluate_aux <case-json>: Section 5A, the Wallet processing of the Credential Auxiliary
-# Data extension. Prints "accept <stored-metadata-per-credential-json>" or "refuse".
-evaluate_aux() {
-    local c=$1 nc i ents nh k h hex want stored='[]'
-    jq -e '.response.credentials|type=="array" and length>0' <<<"$c" >/dev/null || { echo refuse; return; }
-    nc=$(jq '.response.credentials|length' <<<"$c")
-    for ((i=0;i<nc;i++)); do
-        ents=$(jq -c ".response.credentials[$i] | .credential_auxiliary_data // []" <<<"$c")
-        # a present member is a non-empty array of entries, each an object with a type
-        if jq -e ".response.credentials[$i]|has(\"credential_auxiliary_data\")" <<<"$c" >/dev/null; then
-            jq -e 'type=="array" and length>0 and all(.[]; type=="object" and (.type|type=="string" and length>0))' <<<"$ents" >/dev/null || { echo refuse; return; }
-        fi
-        # every entry that to_wallet lists is present
-        jq -e --argjson e "$ents" 'all(.toWallet[]?; . as $w | any($e[]; .type==$w.type and .claim_path==$w.claim_path))' <<<"$c" >/dev/null || { echo refuse; return; }
-        # hash_commitment: the opening is a Secret Value, so the response is encrypted, and
-        # SHA-256 of the decoded opening equals the issuer-signed claim at claim_path
-        nh=$(jq '[.[]|select(.type=="hash_commitment")]|length' <<<"$ents")
-        for ((k=0;k<nh;k++)); do
-            h=$(jq -c "[.[]|select(.type==\"hash_commitment\")][$k]" <<<"$ents")
-            jq -e '.jweEncrypted==true' <<<"$c" >/dev/null || { echo refuse; return; }
-            jq -e '.alg=="sha-256" and (.claim_path|type=="array" and length>0) and (.opening|type=="string") and (has("commitment")|not)' <<<"$h" >/dev/null || { echo refuse; return; }
-            hex=$(b64u_hex "$(jq -r .opening <<<"$h")") || { echo refuse; return; }
-            want=$(jq -r --argjson i "$i" --arg p "$(jq -c .claim_path <<<"$h")" '.claimsHex[$i][$p] // empty' <<<"$c")
-            [[ -n "$want" && "$(xxd -r -p <<<"$hex" | sha256sum | cut -d' ' -f1)" == "$want" ]] || { echo refuse; return; }
-        done
-        stored=$(jq -c --argjson e "$ents" '. + [[$e[] | {type:"credential_auxiliary_data", value:.}]]' <<<"$stored")
-    done
-    echo "accept $stored"
-}
 while IFS= read -r line; do
     id=$(jq -r .id <<<"$line")
     for src in .inputs.plaintextState.S.credentials .expected.roundTripState.S.credentials; do
@@ -158,41 +119,6 @@ while IFS= read -r line; do
         else
             echo "FAIL $id: migration changes more than S.schemaVersion"; fail=1
         fi
-    fi
-    if [[ "$id" == aux-data-hash-commitment-001 ]]; then
-        n=$((n+1)); ok=1
-        hex=$(b64u_hex "$(jq -r .inputs.opening <<<"$line")") || { echo "FAIL $id: opening is not base64url"; ok=0; hex=; }
-        calc=$(xxd -r -p <<<"$hex" | sha256sum | cut -d' ' -f1)
-        ncases=$(jq '.inputs.cases|length' <<<"$line")
-        for ((k=0;k<ncases;k++)); do
-            c=$(jq -c ".inputs.cases[$k]" <<<"$line")
-            if [[ "$calc" == "$(jq -r .claimHex <<<"$c")" ]]; then got=accept; else got=refuse; fi
-            [[ "$got" == "$(jq -r .expected.outcome <<<"$c")" ]] || { echo "FAIL $id[$k] $(jq -r .name <<<"$c"): got $got"; ok=0; }
-        done
-        # the vector must keep covering both outcomes
-        jq -e '[.inputs.cases[].expected.outcome] | (index("accept") != null) and (index("refuse") != null)' <<<"$line" >/dev/null || { echo "FAIL $id: needs an accept and a refuse case"; ok=0; }
-        if [[ $ok == 1 ]]; then echo "ok   $id ($ncases cases)"; else fail=1; fi
-    fi
-    if [[ "$id" == aux-data-accept-001 || "$id" == aux-data-refusal-001 ]]; then
-        n=$((n+1)); ok=1
-        ncases=$(jq '.inputs.cases|length' <<<"$line")
-        [[ "$ncases" -gt 0 ]] || { echo "FAIL $id: no cases"; ok=0; }
-        for ((k=0;k<ncases;k++)); do
-            c=$(jq -c ".inputs.cases[$k]" <<<"$line")
-            want=$(jq -r .expected.outcome <<<"$c")
-            got=$(evaluate_aux "$c"); gotout=${got%% *}
-            if [[ "$gotout" != "$want" ]]; then echo "FAIL $id[$k] $(jq -r .name <<<"$c"): got $gotout want $want"; ok=0; continue; fi
-            if [[ "$want" == accept ]]; then
-                stored=${got#accept }; wantst=$(jq -c .expected.storedMetadataPerCredential <<<"$c")
-                [[ "$stored" == "$wantst" ]] || { echo "FAIL $id[$k]: stored $stored != $wantst"; ok=0; }
-            fi
-        done
-        # each vector holds only the outcome its id names
-        case "$id" in
-            *accept*) jq -e '[.inputs.cases[].expected.outcome]|all(.=="accept")' <<<"$line" >/dev/null || { echo "FAIL $id: non-accept case"; ok=0; } ;;
-            *) jq -e '[.inputs.cases[].expected.outcome]|all(.=="refuse")' <<<"$line" >/dev/null || { echo "FAIL $id: non-refuse case"; ok=0; } ;;
-        esac
-        if [[ $ok == 1 ]]; then echo "ok   $id ($ncases cases)"; else fail=1; fi
     fi
 done < vectors.jsonl
 # Fixtures that carry a plaintextState (same entry shape).

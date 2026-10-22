@@ -212,39 +212,6 @@ to this section MUST reproduce `seed_hex` and `psc_hex` for every vector from
 `refused`, and MUST give different seeds for every pair of `must_differ`.
 `conformance/check-vectors.sh` recomputes all of them.
 
-## 5A. Credential Auxiliary Data
-
-Credential Auxiliary Data is data that travels beside a credential at issuance,
-as typed entries of the OpenID4VCI extension
-[Credential Auxiliary Data](https://github.com/sirosfoundation/nym_auth_rulebook/blob/main/openid-4-verifiable-credential-issuance-auxiliary-data.md)
-("the extension"). An example is the opening of the `nym_auth` `ssc`
-commitment, its `secret_seed`. Secrets that the wallet derives itself, such as
-`private_seed`, are covered in Section 5.4.
-
-### 5A.1 Processing
-
-- The wallet processes the entries of a Credential Response or a Deferred
-  Credential Response as the extension defines (its Section 7.2). When the
-  processing fails, nothing from the response is stored.
-- A Secret Value MUST reach only the wallet component that holds the container.
-
-### 5A.2 Storage
-
-- The wallet stores each entry that the Credential Issuer sent for a credential
-  in the `metadata` member of that credential's entry (Section 6.0). Each entry
-  becomes one `metadata` entry: its `type` is `credential_auxiliary_data` and
-  its `value` is the entry exactly as received. See the example in Section 6.0.
-- An entry of a type the wallet does not recognize is stored without checks.
-- A Secret Value exists in plaintext only inside the encrypted container
-  (Section 5.3) and the unlocked wallet. It MUST NOT be logged, displayed or
-  exported in clear. It MUST NOT be sent to the backend outside the encrypted
-  container.
-- Before each use of an entry, the wallet repeats the checks of its type against
-  the stored credential. The wallet MUST NOT use an entry whose check fails.
-
-Test vectors: `aux-data-hash-commitment-001`, `aux-data-accept-001` and
-`aux-data-refusal-001` in `test-vectors/vectors.jsonl`.
-
 ## 6. JWE Plaintext: WalletStateContainer
 
 The plaintext JSON MUST follow the event-sourced wallet schema used by `wallet-frontend`:
@@ -306,8 +273,8 @@ conformance gap in `wallet-frontend`, not version 3 behaviour:
 - A `wallet-frontend` that implements version 4 has to preserve `metadata` and
   `S.extensions` to conform.
 - Rollout order: none is required. An SDK that implements this version writes
-  version 4 on every write, also when it stores no Credential Auxiliary Data
-  (Section 5A) and no extension, and it MAY do so before `wallet-frontend`
+  version 4 on every write, also when it stores no `metadata` and no extension,
+  and it MAY do so before `wallet-frontend`
   implements version 4. A `wallet-frontend` that implements only version 3 then
   refuses the version 4 container loudly and loses nothing; the users of that
   account cannot open the wallet in that frontend until it implements version 4.
@@ -355,17 +322,9 @@ From version 4, `S.credentials[]` entries MAY carry the member `metadata`:
 ```json
 {
   "credentialId": 1,
-  "format": "mso_mdoc",
+  "format": "dc+sd-jwt",
   "metadata": [
-    {
-      "type": "credential_auxiliary_data",
-      "value": {
-        "type": "hash_commitment",
-        "alg": "sha-256",
-        "claim_path": ["eu.europa.ec.eudi.nym_auth.1", "ssc"],
-        "opening": "So-cHS4_SltsfY6fChssPQ"
-      }
-    }
+    { "type": "org.example.issuer_data", "value": { "note": "stored as received" } }
   ]
 }
 ```
@@ -377,15 +336,14 @@ eight members of Section 6.0 as well.)
   `type` member that is a non-empty string and a `value` member that is any
   JSON value.
 - Entries MUST be stored exactly as received from the party that supplied them.
-  For credentials obtained by OpenID4VCI, Section 5A.2 defines the entries. The
-  container does not interpret an entry. The order of entries MUST be preserved,
+  The container does not interpret an entry. The order of entries MUST be preserved,
   and several entries MAY have the same `type`; the consumer of a `type` defines
   its meaning.
 - A writer MUST NOT emit `metadata` when there is nothing to store: it MUST NOT
   emit `null` or an empty array. A reader MUST accept an absent member and an
   empty array, and treat both as no metadata.
-- `metadata` holds data tied to one credential entry, for example Credential
-  Auxiliary Data (Section 5A) or tokens that give the holder control
+- `metadata` holds data tied to one credential entry, for example data that the
+  issuer supplies with the credential, or tokens that give the holder control
   over revocation of that credential. It MUST NOT hold display metadata, which
   is re-fetched from the issuer, and MUST NOT hold secrets that the wallet
   generates or derives itself. The member name is unrelated to display metadata
@@ -651,4 +609,4 @@ All three documents are non-normative.
 - 2.6 (2026-10-20): Section 6.0 defines the `S.credentials[]` entry exactly as `wallet-frontend` stores it (`credentialId`, `instanceId` and `batchId` are numbers, `data` is the stored credential; no `id` member). The previous example and vectors used a string `id` and string `instanceId`/`batchId` and no `data`, which no implementation produced. Vectors single-credential-v3-001, multi-passkey-v3-001, the metadata vectors and the fixtures use the corrected form. Wire and container unchanged; `S.schemaVersion` remains `3`.
 - 2.7 (2026-10-20): Section 5.4.1: the private seed depends on the issuer (label `org.siros.private_seed/v2`, `info = label || lp(credentialType) || lp(issuer)`); `v1` withdrawn, it was never released. `derived-secrets.json` regenerated. `S.schemaVersion` remains `3`.
 - 3.0 (2026-10-21): `S.schemaVersion` 4 (breaking: a version 3 reader refuses a version 4 container). `set_extension`, `S.extensions` and `S.credentials[].metadata` move from version 3 to version 4, because version 3 readers crash on them or drop them. A new event type needs a new version, so a reader refuses to rewrite a version or event type it does not know. Version 3 is as `wallet-frontend` defines it. Section 6 lists the event types of each version, says that an absent `S.schemaVersion` means 1, that a reader may refuse versions 1 and 2 it cannot migrate, that `set_extension` stamped 3 is accepted, and that `S.keypairs[]` entries are preserved like credential entries. Section 6.1.3: a client without an event log still appends `set_extension` events. Vectors use real events instead of placeholders. SDKs MAY write version 4 before `wallet-frontend` implements it.
-- 3.1 (2026-10-22): Section 5A replaced. Credential Auxiliary Data, an OpenID4VCI extension, carries the data an issuer supplies beside a credential. It supersedes the delivered-secret format of 2.4 and 2.5 (`org.siros.secret_seed` in the response-level `credential_metadata`) and its parties, stripping, advertisement and limit rules. Each received Auxiliary Data Entry is stored as a `metadata` entry of type `credential_auxiliary_data`, and a Deferred Credential Response is processed like any other. The `delivered-secret-*` vectors are replaced by the `aux-data-*` vectors. Container unchanged; `S.schemaVersion` remains `4`.
+- 3.1 (2026-10-22): Section 5A (delivered secrets: `org.siros.secret_seed` in the response-level `credential_metadata`) removed. The OpenID4VCI extension Credential Auxiliary Data supersedes it. The `delivered-secret-*` vectors are removed. Container unchanged; `S.schemaVersion` remains `4`.

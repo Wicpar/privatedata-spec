@@ -112,13 +112,11 @@ Every implementation MUST pass these validations for every vector:
 5. **Event Preservation**: `events[]` and `lastEventHash` MUST be identical after round-trip
 6. **Field Completeness**: `presentations`, `credentialIssuanceSessions` MUST be preserved (not empty if present)
 
-### Metadata and Credential Auxiliary Data vectors
+### Metadata vectors
 
 All vectors except `single-credential-v3-001` and `multi-passkey-v3-001` are version 4.
 
-Vectors with `expected.roundTripState` state the state a conforming reader writes back (compared as JSON, array order significant); `expected.plaintextStateSha256` / `roundTripStateSha256` are SHA-256 over the compact JSON encoding of the respective state with members in the order written. `conformance/check-vectors.sh` verifies these offline (needs only `jq`, `xxd`, `base64`, `sha256sum`).
-
-The Credential Auxiliary Data vectors (SPEC.md Section 5A) are cases of the form `{toWallet, jweEncrypted, responseType, response, claimsHex, expected}`. `response` is an OpenID4VCI Credential Response or Deferred Credential Response with `credential_auxiliary_data` in its `credentials` objects. `claimsHex` gives, per credential, the issuer-signed claim value at each `claim_path`. `aux-data-hash-commitment-001` checks a `hash_commitment` opening against its claim with the extension's example values. `aux-data-accept-001` covers a single credential, a batch, a deferred response and an unrecognized type stored without checks. `aux-data-refusal-001` covers an unencrypted opening (immediate and deferred), an opening mismatch, a missing `to_wallet` entry, an absent claim, a non-base64url opening, an unknown `alg`, an empty array and an entry without `type`. `check-vectors.sh` evaluates every case against the Section 5A rules.
+Vectors with `expected.roundTripState` state the state a conforming reader writes back (compared as JSON, array order significant); `expected.plaintextStateSha256` / `roundTripStateSha256` are SHA-256 over the compact JSON encoding of the respective state with members in the order written. `conformance/check-vectors.sh` verifies these offline (needs only `jq`, `xxd`, `sha256sum`).
 
 ### Schema-version vectors
 
