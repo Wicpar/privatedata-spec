@@ -200,10 +200,6 @@ same person, so issuers cannot correlate their users through `psc`. A ban at
 one issuer therefore does not follow a person to another issuer; this is the
 rulebook's own NOTE 1 (if the issuer changes, it may allow a new `psc`).
 
-The label `org.siros.private_seed/v1` was a proposal that depended on the
-credential type only. It was never released and is withdrawn. `v2` is the only
-defined label; an implementation MUST NOT derive with `v1`.
-
 Test vectors: `test-vectors/derived-secrets.json` (fixed roots, several issuers
 and credential types, injectivity pairs and refused inputs; self-generated with
 independent code, not yet cross-checked between clients). A client conforming
